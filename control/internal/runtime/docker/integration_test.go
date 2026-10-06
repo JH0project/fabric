@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/H01001000/jh0project-fabric/control/internal/app"
+	"github.com/H01001000/jh0project-fabric/control/internal/runtime"
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
-	"github.com/H01001000/jh0project-fabric/control/internal/app"
-	"github.com/H01001000/jh0project-fabric/control/internal/runtime"
 )
 
 // This opt-in test mutates only its own unnamed, labeled container. The image

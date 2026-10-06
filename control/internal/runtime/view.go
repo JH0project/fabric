@@ -37,6 +37,13 @@ func (v *View) Remove(id string) {
 	delete(v.containers, id)
 }
 
+func (v *View) Get(id string) (Container, bool) {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	c, ok := v.containers[id]
+	return clone(c), ok
+}
+
 func (v *View) Snapshot() []Container {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
