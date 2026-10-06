@@ -90,12 +90,12 @@ configuration contract. Build version comes from Go VCS metadata, falls back to
 
 ## Docker image
 
-The root Dockerfile builds a static Linux `agentd` with Go 1.27.1 and packages it
+`control/Dockerfile` builds a static Linux `agentd` with Go 1.27.1 and packages it
 in a minimal image with trusted CA certificates. It runs as UID/GID 65532 by
 default, logs JSON to stdout, and receives SIGTERM directly as PID 1.
 
 ```powershell
-docker build -t jh0project-fabric-agentd --build-arg VERSION=$(git rev-parse HEAD) .
+docker build -f control/Dockerfile -t jh0project-fabric-agentd --build-arg VERSION=$(git rev-parse HEAD) .
 ```
 
 On Docker Desktop, run it against the Linux Engine socket and a Collector on the
