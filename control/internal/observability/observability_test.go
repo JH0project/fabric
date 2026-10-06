@@ -35,8 +35,10 @@ func cleanEnv(t *testing.T) {
 
 func TestSignalConfiguration(t *testing.T) {
 	cleanEnv(t)
-	if on, _, err := signalConfig("TRACES"); on || err != nil {
-		t.Fatalf("default: %v %v", on, err)
+	for _, signal := range []string{"TRACES", "METRICS", "LOGS"} {
+		if on, protocol, err := signalConfig(signal); !on || protocol != "http/protobuf" || err != nil {
+			t.Fatalf("default %s: %v %s %v", signal, on, protocol, err)
+		}
 	}
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
 	if on, p, err := signalConfig("TRACES"); !on || p != "http/protobuf" || err != nil {
@@ -161,6 +163,9 @@ func TestOTLPAllSignalsAndConsoleCorrelation(t *testing.T) {
 
 func TestLocalModeAndUnavailableCollector(t *testing.T) {
 	cleanEnv(t)
+	for _, signal := range []string{"TRACES", "METRICS", "LOGS"} {
+		t.Setenv("OTEL_"+signal+"_EXPORTER", "none")
+	}
 	obs, err := New(context.Background(), Config{ServiceName: "agentd", ServiceVersion: "dev", Format: "text", Output: io.Discard})
 	if err != nil {
 		t.Fatal(err)
@@ -170,6 +175,7 @@ func TestLocalModeAndUnavailableCollector(t *testing.T) {
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(503) }))
 	defer server.Close()
+	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", server.URL+"/v1/traces")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT", "100")
 	obs, err = New(context.Background(), Config{ServiceName: "agentd", ServiceVersion: "dev", Format: "text", Output: io.Discard})

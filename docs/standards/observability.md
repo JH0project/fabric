@@ -106,12 +106,13 @@ telemetry configuration fails bootstrap; network unavailability is non-fatal.
 
 ## Current Go configuration
 
-Export is opt-in: with no endpoint or explicit exporter settings, console logs
-work and no OTLP network requests are made. Set `OTEL_EXPORTER_OTLP_ENDPOINT`
-to enable all three signals, or a signal-specific endpoint to enable only that
-signal. `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, and `OTEL_LOGS_EXPORTER`
-accept `otlp` or `none`. Explicit `otlp` uses the SDK's localhost endpoint if
-none is supplied. `OTEL_SDK_DISABLED=true` disables export and span recording.
+Export is enabled by default for all three signals alongside stdout logs. With
+no overrides, OTLP uses HTTP/protobuf at `http://localhost:4318`. A missing
+Collector remains non-fatal. `OTEL_EXPORTER_OTLP_ENDPOINT` overrides the shared
+endpoint; signal-specific endpoints override only their signal's destination.
+`OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, and `OTEL_LOGS_EXPORTER` accept
+`otlp` (the default) or `none`. `OTEL_SDK_DISABLED=true` disables export and span
+recording while preserving stdout logging.
 
 `OTEL_EXPORTER_OTLP_PROTOCOL` defaults to `http/protobuf` (normally port 4318).
 `grpc` is also supported (normally port 4317). Per-signal

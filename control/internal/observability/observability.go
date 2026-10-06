@@ -196,7 +196,7 @@ func newResource(ctx context.Context, cfg Config) (*resource.Resource, error) {
 	), resource.WithFromEnv())
 }
 
-// Export is opt-in in local development. Standard per-signal exporter and
+// Export is enabled by default alongside stdout. Standard per-signal exporter and
 // endpoint variables take precedence; SDKs handle TLS, headers and timeouts.
 func signalConfig(signal string) (bool, string, error) {
 	if strings.EqualFold(os.Getenv("OTEL_SDK_DISABLED"), "true") {
@@ -208,9 +208,6 @@ func signalConfig(signal string) (bool, string, error) {
 	}
 	if exporter != "" && exporter != "otlp" {
 		return false, "", fmt.Errorf("OTEL_%s_EXPORTER must be otlp or none", signal)
-	}
-	if exporter == "" && os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" && os.Getenv("OTEL_EXPORTER_OTLP_"+signal+"_ENDPOINT") == "" {
-		return false, "", nil
 	}
 	protocol := os.Getenv("OTEL_EXPORTER_OTLP_" + signal + "_PROTOCOL")
 	if protocol == "" {

@@ -64,12 +64,14 @@ infrastructure is deployed by this repo.
 
 Console logs always go to stdout, including when OTLP export is enabled.
 
-Local execution needs no Collector and makes no telemetry export requests by
-default. INFO logs show lifecycle and container state/metadata changes. DEBUG
+By default, all three signals export to a Collector at `http://localhost:4318`
+while logs also stream to stdout. A missing Collector warns without stopping
+Docker observation. Set `OTEL_SDK_DISABLED=true` for stdout-only operation.
+INFO logs show lifecycle and container state/metadata changes. DEBUG
 shows event processing and successful refreshes. Active operation logs include
 trace/span IDs. Production console logs can use `-log-format json`.
 
-To send all three signals to an existing Collector from PowerShell:
+To override the Collector endpoint and configure node identity from PowerShell:
 
 ```powershell
 $env:OTEL_EXPORTER_OTLP_ENDPOINT = 'http://localhost:4318'
