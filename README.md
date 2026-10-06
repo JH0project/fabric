@@ -88,6 +88,35 @@ For gRPC use `grpc` and port `4317`. Per-signal endpoint/protocol overrides and
 configuration contract. Build version comes from Go VCS metadata, falls back to
 `dev`, or can be supplied with `-ldflags '-X main.version=<release>'`.
 
+## Docker image
+
+The root Dockerfile builds a static Linux `agentd` with Go 1.27.1 and packages it
+in a minimal image with trusted CA certificates. It runs as UID/GID 65532 by
+default, logs JSON to stdout, and receives SIGTERM directly as PID 1.
+
+```powershell
+docker build -t jh0project-fabric-agentd --build-arg VERSION=$(git rev-parse HEAD) .
+```
+
+On Docker Desktop, run it against the Linux Engine socket and a Collector on the
+host (the socket is normally owned by group 0):
+
+```powershell
+docker run --rm --name fabric-agentd --group-add 0 `
+  --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock `
+  -e OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318 `
+  -e FABRIC_NODE_ID=your-stable-node-id `
+  jh0project-fabric-agentd
+```
+
+On a Linux host, use `--group-add "$(stat -c '%g' /var/run/docker.sock)"` to match
+the socket's group. Set the Collector endpoint to its reachable host or container
+network address; `localhost` inside the container means the container itself.
+Pass flags after the image name, for example `-log-level debug -log-format json`.
+Stop it with `docker stop fabric-agentd`; allow at least 10 seconds for cleanup.
+The socket mount grants Docker API access; the current agent only observes it.
+For remote Docker, configure `DOCKER_HOST` and mount/set TLS certificates instead.
+
 ## Tests
 
 Fake runtimes and local HTTP simulators verify observations, deadlines, failures,

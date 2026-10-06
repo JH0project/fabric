@@ -1,0 +1,7 @@
+# Only inputs needed by the Go build enter the image build context.
+**
+!Dockerfile
+!go.mod
+!go.sum
+!control/
+!control/**
