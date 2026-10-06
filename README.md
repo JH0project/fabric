@@ -62,6 +62,8 @@ error/shutdown handling. Intended signal flow is OTLP to an OTel Collector,
 then Loki (logs), Tempo (traces), and Prometheus (metrics). No monitoring
 infrastructure is deployed by this repo.
 
+Console logs always go to stdout, including when OTLP export is enabled.
+
 Local execution needs no Collector and makes no telemetry export requests by
 default. INFO logs show lifecycle and container state/metadata changes. DEBUG
 shows event processing and successful refreshes. Active operation logs include

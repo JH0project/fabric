@@ -34,7 +34,8 @@ container labels in telemetry.
 
 ## Logs and errors
 
-Logs MUST be structured, with a stable message and typed attributes. Pass the
+Logs MUST be structured, with a stable message and typed attributes. Console logs
+go to stdout and remain enabled alongside OTLP export. Pass the
 operation context to logging calls. Active trace context MUST be carried in OTLP
 log trace/span fields and as `trace_id`/`span_id` in console output. Lifecycle
 logs outside a span need no synthetic trace ID.

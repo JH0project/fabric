@@ -51,7 +51,7 @@ func New(ctx context.Context, cfg Config) (_ *Telemetry, err error) {
 		return nil, errors.New("service name and version are required")
 	}
 	if cfg.Output == nil {
-		cfg.Output = os.Stderr
+		cfg.Output = os.Stdout
 	}
 	if cfg.Format != "text" && cfg.Format != "json" {
 		return nil, errors.New("log format must be text or json")
