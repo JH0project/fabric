@@ -1,4 +1,4 @@
-module github.com/H01001000/jh0project-fabric
+module github.com/JH0project/JH0project-fabric
 
 go 1.26.0
 

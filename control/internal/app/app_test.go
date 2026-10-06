@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/H01001000/jh0project-fabric/control/internal/runtime"
+	"github.com/JH0project/JH0project-fabric/control/internal/runtime"
 )
 
 type fakeRuntime struct {
