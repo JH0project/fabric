@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -203,5 +204,49 @@ func TestResourceInstanceUniqueness(t *testing.T) {
 	}
 	if strings.Contains(a.String(), "service.instance.id=") && a.String() == b.String() {
 		t.Fatal("instance IDs reused")
+	}
+}
+
+func TestDefaultEndpointUsesPlaintextHTTP(t *testing.T) {
+	cleanEnv(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:4318")
+	if err != nil {
+		t.Skipf("local Collector port occupied: %v", err)
+	}
+	received := make(chan string, 3)
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		received <- r.URL.Path
+		w.Header().Set("Content-Type", "application/x-protobuf")
+	})}
+	go server.Serve(listener)
+	defer server.Close()
+	t.Setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "500")
+	obs, err := New(context.Background(), Config{ServiceName: "agentd", ServiceVersion: "test", Format: "text", Output: io.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, span := obs.Traces.Tracer("test").Start(context.Background(), "snapshot")
+	obs.Logger.InfoContext(ctx, "snapshot loaded")
+	span.End()
+	counter, err := obs.Metrics.Meter("test").Int64Counter("fabric.runtime.snapshots")
+	if err != nil {
+		t.Fatal(err)
+	}
+	counter.Add(ctx, 1)
+	flushCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := obs.Shutdown(flushCtx); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/v1/traces", "/v1/metrics", "/v1/logs"} {
+		select {
+		case got := <-received:
+			if got != path {
+				t.Fatalf("want %s, got %s", path, got)
+			}
+		default:
+			t.Fatalf("no export for %s", path)
+		}
 	}
 }

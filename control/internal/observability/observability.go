@@ -97,9 +97,17 @@ func New(ctx context.Context, cfg Config) (_ *Telemetry, err error) {
 		case "TRACES":
 			var exporter sdktrace.SpanExporter
 			if protocol == "grpc" {
-				exporter, e = otlptracegrpc.New(ctx)
+				options := []otlptracegrpc.Option{}
+				if defaultEndpoint(signal) {
+					options = append(options, otlptracegrpc.WithInsecure())
+				}
+				exporter, e = otlptracegrpc.New(ctx, options...)
 			} else {
-				exporter, e = otlptracehttp.New(ctx)
+				options := []otlptracehttp.Option{}
+				if defaultEndpoint(signal) {
+					options = append(options, otlptracehttp.WithInsecure())
+				}
+				exporter, e = otlptracehttp.New(ctx, options...)
 			}
 			if e != nil {
 				return nil, fmt.Errorf("configure traces: %w", e)
@@ -110,9 +118,17 @@ func New(ctx context.Context, cfg Config) (_ *Telemetry, err error) {
 		case "METRICS":
 			var exporter sdkmetric.Exporter
 			if protocol == "grpc" {
-				exporter, e = otlpmetricgrpc.New(ctx)
+				options := []otlpmetricgrpc.Option{}
+				if defaultEndpoint(signal) {
+					options = append(options, otlpmetricgrpc.WithInsecure())
+				}
+				exporter, e = otlpmetricgrpc.New(ctx, options...)
 			} else {
-				exporter, e = otlpmetrichttp.New(ctx)
+				options := []otlpmetrichttp.Option{}
+				if defaultEndpoint(signal) {
+					options = append(options, otlpmetrichttp.WithInsecure())
+				}
+				exporter, e = otlpmetrichttp.New(ctx, options...)
 			}
 			if e != nil {
 				return nil, fmt.Errorf("configure metrics: %w", e)
@@ -122,9 +138,17 @@ func New(ctx context.Context, cfg Config) (_ *Telemetry, err error) {
 		case "LOGS":
 			var exporter sdklog.Exporter
 			if protocol == "grpc" {
-				exporter, e = otlploggrpc.New(ctx)
+				options := []otlploggrpc.Option{}
+				if defaultEndpoint(signal) {
+					options = append(options, otlploggrpc.WithInsecure())
+				}
+				exporter, e = otlploggrpc.New(ctx, options...)
 			} else {
-				exporter, e = otlploghttp.New(ctx)
+				options := []otlploghttp.Option{}
+				if defaultEndpoint(signal) {
+					options = append(options, otlploghttp.WithInsecure())
+				}
+				exporter, e = otlploghttp.New(ctx, options...)
 			}
 			if e != nil {
 				return nil, fmt.Errorf("configure logs: %w", e)
@@ -220,4 +244,10 @@ func signalConfig(signal string) (bool, string, error) {
 		return false, "", fmt.Errorf("unsupported OTLP %s protocol %q", signal, protocol)
 	}
 	return true, protocol, nil
+}
+
+// The local default is plaintext HTTP/gRPC. Explicit endpoints retain the SDK's
+// TLS interpretation and certificate settings without an insecure override.
+func defaultEndpoint(signal string) bool {
+	return os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" && os.Getenv("OTEL_EXPORTER_OTLP_"+signal+"_ENDPOINT") == ""
 }
