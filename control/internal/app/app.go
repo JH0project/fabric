@@ -14,7 +14,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/JH0project/JH0project-fabric/control/internal/runtime"
+	"github.com/JH0project/fabric/control/internal/runtime"
 )
 
 type App struct {

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JH0project/JH0project-fabric/control/internal/runtime"
+	"github.com/JH0project/fabric/control/internal/runtime"
 	"github.com/moby/moby/client"
 )
 

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JH0project/JH0project-fabric/control/internal/app"
-	"github.com/JH0project/JH0project-fabric/control/internal/runtime"
+	"github.com/JH0project/fabric/control/internal/app"
+	"github.com/JH0project/fabric/control/internal/runtime"
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"

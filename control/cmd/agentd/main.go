@@ -12,10 +12,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/JH0project/JH0project-fabric/control/internal/app"
-	"github.com/JH0project/JH0project-fabric/control/internal/observability"
-	"github.com/JH0project/JH0project-fabric/control/internal/runtime"
-	"github.com/JH0project/JH0project-fabric/control/internal/runtime/docker"
+	"github.com/JH0project/fabric/control/internal/app"
+	"github.com/JH0project/fabric/control/internal/observability"
+	"github.com/JH0project/fabric/control/internal/runtime"
+	"github.com/JH0project/fabric/control/internal/runtime/docker"
 )
 
 func main() {
