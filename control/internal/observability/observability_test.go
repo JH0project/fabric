@@ -37,7 +37,7 @@ func cleanEnv(t *testing.T) {
 func TestSignalConfiguration(t *testing.T) {
 	cleanEnv(t)
 	for _, signal := range []string{"TRACES", "METRICS", "LOGS"} {
-		if on, protocol, err := signalConfig(signal); !on || protocol != "http/protobuf" || err != nil {
+		if on, protocol, err := signalConfig(signal); on || protocol != "" || err != nil {
 			t.Fatalf("default %s: %v %s %v", signal, on, protocol, err)
 		}
 	}
@@ -207,13 +207,13 @@ func TestResourceInstanceUniqueness(t *testing.T) {
 	}
 }
 
-func TestDefaultEndpointUsesPlaintextHTTP(t *testing.T) {
+func TestNoEndpointDoesNotShip(t *testing.T) {
 	cleanEnv(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:4318")
 	if err != nil {
 		t.Skipf("local Collector port occupied: %v", err)
 	}
-	received := make(chan string, 3)
+	received := make(chan string, 10)
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		received <- r.URL.Path
@@ -221,8 +221,8 @@ func TestDefaultEndpointUsesPlaintextHTTP(t *testing.T) {
 	})}
 	go server.Serve(listener)
 	defer server.Close()
-	t.Setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "500")
-	obs, err := New(context.Background(), Config{ServiceName: "agentd", ServiceVersion: "test", Format: "text", Output: io.Discard})
+	var console bytes.Buffer
+	obs, err := New(context.Background(), Config{ServiceName: "agentd", ServiceVersion: "test", Format: "text", Output: &console})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,14 +239,37 @@ func TestDefaultEndpointUsesPlaintextHTTP(t *testing.T) {
 	if err := obs.Shutdown(flushCtx); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/v1/traces", "/v1/metrics", "/v1/logs"} {
-		select {
-		case got := <-received:
-			if got != path {
-				t.Fatalf("want %s, got %s", path, got)
-			}
-		default:
-			t.Fatalf("no export for %s", path)
+	if !strings.Contains(console.String(), "snapshot loaded") {
+		t.Fatal("console logging was disabled")
+	}
+	select {
+	case path := <-received:
+		t.Fatalf("unexpected shipping without endpoint: %s", path)
+	default:
+	}
+}
+
+func TestShippingRequiresCollectorEndpoint(t *testing.T) {
+	cleanEnv(t)
+	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
+	if on, _, err := signalConfig("TRACES"); on || err != nil {
+		t.Fatal("exporter name alone enabled shipping")
+	}
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4318/v1/traces")
+	for _, signal := range []string{"TRACES", "METRICS", "LOGS"} {
+		on, _, err := signalConfig(signal)
+		if err != nil || on != (signal == "TRACES") {
+			t.Fatalf("signal-specific endpoint %s: %v %v", signal, on, err)
 		}
+	}
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
+	for _, signal := range []string{"TRACES", "METRICS", "LOGS"} {
+		if on, _, err := signalConfig(signal); !on || err != nil {
+			t.Fatalf("shared endpoint %s: %v %v", signal, on, err)
+		}
+	}
+	t.Setenv("OTEL_LOGS_EXPORTER", "none")
+	if on, _, err := signalConfig("LOGS"); on || err != nil {
+		t.Fatal("explicit disable ignored")
 	}
 }

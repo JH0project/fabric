@@ -64,14 +64,16 @@ infrastructure is deployed by this repo.
 
 Console logs always go to stdout, including when OTLP export is enabled.
 
-By default, all three signals export to a Collector at `http://localhost:4318`
-while logs also stream to stdout. A missing Collector warns without stopping
-Docker observation. Set `OTEL_SDK_DISABLED=true` for stdout-only operation.
+By default, logs stream to stdout and OTLP shipping is off. Provide
+`OTEL_EXPORTER_OTLP_ENDPOINT` to enable all three signals, or a signal-specific
+endpoint to enable only that signal. Setting an exporter to `otlp` without an
+endpoint does not enable shipping. If a configured Collector becomes unavailable,
+export failures warn without stopping Docker observation.
 INFO logs show lifecycle and container state/metadata changes. DEBUG
 shows event processing and successful refreshes. Active operation logs include
 trace/span IDs. Production console logs can use `-log-format json`.
 
-To override the Collector endpoint and configure node identity from PowerShell:
+When a Collector exists, enable shipping and configure node identity from PowerShell:
 
 ```powershell
 $env:OTEL_EXPORTER_OTLP_ENDPOINT = 'http://localhost:4318'

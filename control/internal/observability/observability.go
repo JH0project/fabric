@@ -97,17 +97,9 @@ func New(ctx context.Context, cfg Config) (_ *Telemetry, err error) {
 		case "TRACES":
 			var exporter sdktrace.SpanExporter
 			if protocol == "grpc" {
-				options := []otlptracegrpc.Option{}
-				if defaultEndpoint(signal) {
-					options = append(options, otlptracegrpc.WithInsecure())
-				}
-				exporter, e = otlptracegrpc.New(ctx, options...)
+				exporter, e = otlptracegrpc.New(ctx)
 			} else {
-				options := []otlptracehttp.Option{}
-				if defaultEndpoint(signal) {
-					options = append(options, otlptracehttp.WithInsecure())
-				}
-				exporter, e = otlptracehttp.New(ctx, options...)
+				exporter, e = otlptracehttp.New(ctx)
 			}
 			if e != nil {
 				return nil, fmt.Errorf("configure traces: %w", e)
@@ -118,17 +110,9 @@ func New(ctx context.Context, cfg Config) (_ *Telemetry, err error) {
 		case "METRICS":
 			var exporter sdkmetric.Exporter
 			if protocol == "grpc" {
-				options := []otlpmetricgrpc.Option{}
-				if defaultEndpoint(signal) {
-					options = append(options, otlpmetricgrpc.WithInsecure())
-				}
-				exporter, e = otlpmetricgrpc.New(ctx, options...)
+				exporter, e = otlpmetricgrpc.New(ctx)
 			} else {
-				options := []otlpmetrichttp.Option{}
-				if defaultEndpoint(signal) {
-					options = append(options, otlpmetrichttp.WithInsecure())
-				}
-				exporter, e = otlpmetrichttp.New(ctx, options...)
+				exporter, e = otlpmetrichttp.New(ctx)
 			}
 			if e != nil {
 				return nil, fmt.Errorf("configure metrics: %w", e)
@@ -138,17 +122,9 @@ func New(ctx context.Context, cfg Config) (_ *Telemetry, err error) {
 		case "LOGS":
 			var exporter sdklog.Exporter
 			if protocol == "grpc" {
-				options := []otlploggrpc.Option{}
-				if defaultEndpoint(signal) {
-					options = append(options, otlploggrpc.WithInsecure())
-				}
-				exporter, e = otlploggrpc.New(ctx, options...)
+				exporter, e = otlploggrpc.New(ctx)
 			} else {
-				options := []otlploghttp.Option{}
-				if defaultEndpoint(signal) {
-					options = append(options, otlploghttp.WithInsecure())
-				}
-				exporter, e = otlploghttp.New(ctx, options...)
+				exporter, e = otlploghttp.New(ctx)
 			}
 			if e != nil {
 				return nil, fmt.Errorf("configure logs: %w", e)
@@ -220,7 +196,7 @@ func newResource(ctx context.Context, cfg Config) (*resource.Resource, error) {
 	), resource.WithFromEnv())
 }
 
-// Export is enabled by default alongside stdout. Standard per-signal exporter and
+// Export is opt-in through a Collector endpoint; stdout is always enabled. Exporter and
 // endpoint variables take precedence; SDKs handle TLS, headers and timeouts.
 func signalConfig(signal string) (bool, string, error) {
 	if strings.EqualFold(os.Getenv("OTEL_SDK_DISABLED"), "true") {
@@ -233,6 +209,11 @@ func signalConfig(signal string) (bool, string, error) {
 	if exporter != "" && exporter != "otlp" {
 		return false, "", fmt.Errorf("OTEL_%s_EXPORTER must be otlp or none", signal)
 	}
+	// An exporter name alone does not identify a Collector. Do not fall back
+	// to localhost when no shared or signal-specific endpoint was provided.
+	if strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")) == "" && strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_"+signal+"_ENDPOINT")) == "" {
+		return false, "", nil
+	}
 	protocol := os.Getenv("OTEL_EXPORTER_OTLP_" + signal + "_PROTOCOL")
 	if protocol == "" {
 		protocol = os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
@@ -244,10 +225,4 @@ func signalConfig(signal string) (bool, string, error) {
 		return false, "", fmt.Errorf("unsupported OTLP %s protocol %q", signal, protocol)
 	}
 	return true, protocol, nil
-}
-
-// The local default is plaintext HTTP/gRPC. Explicit endpoints retain the SDK's
-// TLS interpretation and certificate settings without an insecure override.
-func defaultEndpoint(signal string) bool {
-	return os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" && os.Getenv("OTEL_EXPORTER_OTLP_"+signal+"_ENDPOINT") == ""
 }
