@@ -3,8 +3,9 @@
 Fabric is a Go + Rust + Node/TypeScript monorepo. Only the Go control plane,
 `agentd`, exists today; the future Rust L4 data plane (`routerd`) and Node services
 will follow the same language-neutral observability contract. No empty language
-scaffolds, external state systems, deployment actions, or desired-state
-reconciliation are implemented.
+scaffolds, external state systems, container deployment actions,
+or desired-state reconciliation are implemented. An opt-in stateless configuration
+RPC writes caller-supplied files to explicitly allowed local roots.
 
 ## Run
 
@@ -52,7 +53,10 @@ bounded event history. This is read-only observation, not reconciliation.
 
 Docker remains the source of truth. The disposable, concurrency-safe view stores
 ID, name, image reference, state, and labels. Readers receive copies. It is
-internal and eventually consistent; there is no public API or persistence.
+internal and eventually consistent; the observer has no public API or persistence.
+
+See [configuration RPC](docs/configuration-rpc.md) for the opt-in authenticated
+HTTP API, file semantics, writable mounts and Coolify integration boundary.
 
 ## Observability
 
