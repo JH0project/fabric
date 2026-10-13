@@ -97,7 +97,8 @@ configuration contract. Build version comes from Go VCS metadata, falls back to
 ## Docker image
 
 `control/Dockerfile` builds a static Linux `agentd` with Go 1.27.1 and packages it
-in a minimal image with trusted CA certificates. It runs as UID/GID 65532 by
+in Alpine 3.24 with trusted CA certificates, /bin/sh, and the iproute2 `ip`
+utility. It runs as UID/GID 65532 by
 default, logs JSON to stdout, and receives SIGTERM directly as PID 1.
 
 ```powershell
@@ -119,6 +120,10 @@ On a Linux host, use `--group-add "$(stat -c '%g' /var/run/docker.sock)"` to mat
 the socket's group. Set the Collector endpoint to its reachable host or container
 network address; `localhost` inside the container means the container itself.
 Pass flags after the image name, for example `-log-level debug -log-format json`.
+The `ip` utility can inspect container interfaces. Changing addresses requires
+explicit NET_ADMIN capability and a suitable user; installing the utility does
+not grant those permissions or change any addresses automatically.
+
 Stop it with `docker stop fabric-agentd`; allow at least 10 seconds for cleanup.
 The socket mount grants Docker API access; the current agent only observes it.
 For remote Docker, configure `DOCKER_HOST` and mount/set TLS certificates instead.

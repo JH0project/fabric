@@ -15,8 +15,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath -buildvcs=false -ldflags="-s -w -X main.version=${VERSION}" \
     -o /out/agentd ./control/cmd/agentd
 
-FROM scratch
-COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+FROM alpine:3.24
+RUN apk add --no-cache ca-certificates iproute2
 COPY --from=build /out/agentd /agentd
 USER 65532:65532
 STOPSIGNAL SIGTERM
