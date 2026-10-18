@@ -25,13 +25,14 @@ var (
 )
 
 type File struct {
-	Path           string        `json:"path"`
-	Content        *string       `json:"content"`
-	Mode           string        `json:"mode,omitempty"`
-	UID            *int          `json:"uid,omitempty"`
-	GID            *int          `json:"gid,omitempty"`
-	Template       *TemplateSpec `json:"template,omitempty"`
-	ExpectedSHA256 string        `json:"expected_sha256,omitempty"`
+	preserveOwnership bool
+	Path              string        `json:"path"`
+	Content           *string       `json:"content"`
+	Mode              string        `json:"mode,omitempty"`
+	UID               *int          `json:"uid,omitempty"`
+	GID               *int          `json:"gid,omitempty"`
+	Template          *TemplateSpec `json:"template,omitempty"`
+	ExpectedSHA256    string        `json:"expected_sha256,omitempty"`
 }
 type root struct {
 	path   string
@@ -183,6 +184,17 @@ func (w *Writer) Write(ctx context.Context, spec File) (string, error) {
 	}
 	if existing != nil && spec.Mode == "" {
 		mode = existing.Mode().Perm()
+	}
+	if existing != nil && spec.preserveOwnership {
+		uid, gid, ok := existingOwnership(existing)
+		if ok {
+			if spec.UID == nil {
+				spec.UID = &uid
+			}
+			if spec.GID == nil {
+				spec.GID = &gid
+			}
+		}
 	}
 	parent := filepath.Dir(rel)
 	if err := r.MkdirAll(parent, 0755); err != nil {

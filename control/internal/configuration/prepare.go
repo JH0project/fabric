@@ -97,6 +97,7 @@ func prepare(ctx context.Context, files []File) ([]File, RenderResult) {
 		} else {
 			receipt.SHA256 = digest
 			file.Content = &content
+			file.preserveOwnership = file.Template != nil
 			file.Template = nil
 			file.ExpectedSHA256 = ""
 			ready[i] = file

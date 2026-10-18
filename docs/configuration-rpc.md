@@ -178,3 +178,8 @@ exclude $.node.id. Fabric does not discover node addresses, fetch environment
 variables, expand shell variables, or recursively interpret values as templates.
 The caller decides which environment scope is authorized for each destination.
 Never put another node's private environment into the public peer list.
+
+Rendered-template application on Linux preserves an existing file's UID/GID
+when those fields are omitted. Explicit UID/GID still override them. New files
+and literal-content clients retain their existing ownership defaults. This
+keeps service-owned private configs readable after atomic replacement.
