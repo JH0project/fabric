@@ -25,11 +25,13 @@ var (
 )
 
 type File struct {
-	Path    string  `json:"path"`
-	Content *string `json:"content"`
-	Mode    string  `json:"mode,omitempty"`
-	UID     *int    `json:"uid,omitempty"`
-	GID     *int    `json:"gid,omitempty"`
+	Path           string        `json:"path"`
+	Content        *string       `json:"content"`
+	Mode           string        `json:"mode,omitempty"`
+	UID            *int          `json:"uid,omitempty"`
+	GID            *int          `json:"gid,omitempty"`
+	Template       *TemplateSpec `json:"template,omitempty"`
+	ExpectedSHA256 string        `json:"expected_sha256,omitempty"`
 }
 type root struct {
 	path   string

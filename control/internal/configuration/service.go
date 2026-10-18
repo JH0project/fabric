@@ -7,7 +7,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
-	"io/fs"
 	"log/slog"
 	"time"
 )
@@ -53,29 +52,34 @@ func (s *Service) Apply(ctx context.Context, request Request) Result {
 	start := time.Now()
 	result := Result{Applied: true, Files: make([]FileResult, 0, len(request.Files))}
 	outcome := "success"
-	for _, file := range request.Files {
-		digest, err := s.writer.Write(ctx, file)
-		item := FileResult{Path: file.Path, Applied: err == nil, SHA256: digest}
-		if err != nil {
-			result.Applied = false
-			outcome = "error"
-			switch {
-			case errors.Is(err, context.Canceled):
-				item.Code = "cancelled"
-				outcome = "cancelled"
-			case errors.Is(err, context.DeadlineExceeded):
-				item.Code = "timeout"
-			case errors.Is(err, ErrInvalid):
-				item.Code = "invalid_file"
-			case errors.Is(err, ErrConflict):
-				item.Code = "path_conflict"
-			case errors.Is(err, fs.ErrPermission):
-				item.Code = "permission_denied"
-			default:
-				item.Code = "write_failed"
+	files, rendered := prepare(ctx, request.Files)
+	if !rendered.Rendered {
+		result.Applied = false
+		outcome = "error"
+		for _, receipt := range rendered.Files {
+			code := receipt.Code
+			if code == "" {
+				code = "not_applied"
 			}
+			if code == "cancelled" {
+				outcome = "cancelled"
+			}
+			result.Files = append(result.Files, FileResult{Path: receipt.Path, Code: code})
 		}
-		result.Files = append(result.Files, item)
+	} else {
+		for _, file := range files {
+			digest, err := s.writer.Write(ctx, file)
+			item := FileResult{Path: file.Path, Applied: err == nil, SHA256: digest}
+			if err != nil {
+				result.Applied = false
+				outcome = "error"
+				item.Code = errorCode(err)
+				if errors.Is(err, context.Canceled) {
+					outcome = "cancelled"
+				}
+			}
+			result.Files = append(result.Files, item)
+		}
 	}
 	attributes := metric.WithAttributes(attribute.String("result", outcome))
 	s.count.Add(ctx, 1, attributes)

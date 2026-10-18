@@ -21,6 +21,10 @@ const MaxRequestBytes = 8 * 1024 * 1024
 type Applier interface {
 	Apply(context.Context, configuration.Request) configuration.Result
 }
+type Renderer interface {
+	Render(context.Context, configuration.Request) configuration.RenderResult
+}
+
 type Server struct {
 	Address string
 	token   string
@@ -44,13 +48,17 @@ func respond(w http.ResponseWriter, status int, value any) {
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
-		ctx, span := otel.Tracer("github.com/JH0project/fabric/control/rpc").Start(ctx, "rpc.configuration.apply")
+		operation := "rpc.configuration.apply"
+		if r.URL.Path == "/v1/configurations/render" {
+			operation = "rpc.configuration.render"
+		}
+		ctx, span := otel.Tracer("github.com/JH0project/fabric/control/rpc").Start(ctx, operation)
 		defer span.End()
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+s.token)) != 1 {
 			respond(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
-		if r.URL.Path != "/v1/configurations/apply" {
+		if r.URL.Path != "/v1/configurations/apply" && r.URL.Path != "/v1/configurations/render" {
 			respond(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 			return
 		}
@@ -79,11 +87,26 @@ func (s *Server) Handler() http.Handler {
 		}
 		paths := make(map[string]bool)
 		for _, file := range request.Files {
-			if file.Path == "" || file.Content == nil || len(*file.Content) > configuration.MaxFileBytes || paths[file.Path] {
+			if !file.ValidInput() || paths[file.Path] {
 				respond(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 				return
 			}
 			paths[file.Path] = true
+		}
+		if r.URL.Path == "/v1/configurations/render" {
+			renderer, ok := s.applier.(Renderer)
+			if !ok {
+				respond(w, http.StatusNotImplemented, map[string]string{"error": "render_not_supported"})
+				return
+			}
+			result := renderer.Render(ctx, request)
+			status := http.StatusOK
+			if !result.Rendered {
+				span.SetStatus(codes.Error, "configuration rendering failed")
+				status = http.StatusUnprocessableEntity
+			}
+			respond(w, status, result)
+			return
 		}
 		result := s.applier.Apply(ctx, request)
 		status := http.StatusOK
