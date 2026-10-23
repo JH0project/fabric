@@ -98,20 +98,25 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 	}
 	var server *rpc.Server
 	if *rpcEnabled {
-		paths := strings.Split(*roots, ",")
-		for i := range paths {
-			paths[i] = strings.TrimSpace(paths[i])
+		var applier rpc.Applier
+		// Compose generation is stateless and can run without enabling file writes.
+		if strings.TrimSpace(*roots) != "" {
+			paths := strings.Split(*roots, ",")
+			for i := range paths {
+				paths[i] = strings.TrimSpace(paths[i])
+			}
+			writer, writerErr := configuration.NewWriter(paths)
+			if writerErr != nil {
+				return writerErr
+			}
+			defer writer.Close()
+			service, serviceErr := configuration.NewService(writer, logger)
+			if serviceErr != nil {
+				return serviceErr
+			}
+			applier = service
 		}
-		writer, writerErr := configuration.NewWriter(paths)
-		if writerErr != nil {
-			return writerErr
-		}
-		defer writer.Close()
-		service, serviceErr := configuration.NewService(writer, logger)
-		if serviceErr != nil {
-			return serviceErr
-		}
-		server, err = rpc.New(*rpcListen, os.Getenv("FABRIC_RPC_TOKEN"), service)
+		server, err = rpc.New(*rpcListen, os.Getenv("FABRIC_RPC_TOKEN"), applier)
 		if err != nil {
 			return err
 		}

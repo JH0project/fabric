@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"github.com/JH0project/fabric/control/internal/compose"
 	"github.com/JH0project/fabric/control/internal/configuration"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -49,6 +50,9 @@ func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
 		operation := "rpc.configuration.apply"
+		if r.URL.Path == "/v1/compose/generate" {
+			operation = "rpc.compose.generate"
+		}
 		if r.URL.Path == "/v1/configurations/render" {
 			operation = "rpc.configuration.render"
 		}
@@ -58,6 +62,10 @@ func (s *Server) Handler() http.Handler {
 			respond(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
+		if r.URL.Path == "/v1/compose/generate" {
+			s.generateCompose(w, r.WithContext(ctx))
+			return
+		}
 		if r.URL.Path != "/v1/configurations/apply" && r.URL.Path != "/v1/configurations/render" {
 			respond(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 			return
@@ -65,6 +73,10 @@ func (s *Server) Handler() http.Handler {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")
 			respond(w, http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
+			return
+		}
+		if s.applier == nil {
+			respond(w, http.StatusServiceUnavailable, map[string]string{"error": "configuration_disabled"})
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBytes)
@@ -151,4 +163,42 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		return errors.Join(err, serveErr)
 	}
+}
+
+func (s *Server) generateCompose(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		respond(w, 405, map[string]string{"error": "method_not_allowed"})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBytes)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
+	var spec compose.Request
+	if err := decoder.Decode(&spec); err != nil {
+		status := http.StatusBadRequest
+		var large *http.MaxBytesError
+		if errors.As(err, &large) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		respond(w, status, map[string]string{"error": "invalid_request"})
+		return
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		status := http.StatusBadRequest
+		var large *http.MaxBytesError
+		if errors.As(err, &large) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		respond(w, status, map[string]string{"error": "invalid_request"})
+		return
+	}
+	result, err := compose.Generate(r.Context(), spec)
+	if err != nil {
+		respond(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_compose"})
+		return
+	}
+	respond(w, http.StatusOK, result)
 }

@@ -5,7 +5,9 @@ Fabric is a Go + Rust + Node/TypeScript monorepo. Only the Go control plane,
 will follow the same language-neutral observability contract. No empty language
 scaffolds, external state systems, container deployment actions,
 or desired-state reconciliation are implemented. An opt-in stateless configuration
-RPC writes caller-supplied files to explicitly allowed local roots.
+RPC writes caller-supplied files to explicitly allowed local roots. A separate
+[stateless Compose generation RPC](docs/compose-rpc.md) assembles a single-application
+deployment document without database, filesystem or Docker access.
 
 ## Run
 
