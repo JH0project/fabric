@@ -19,6 +19,11 @@ func TestArgumentsAndCancelledBootstrap(t *testing.T) {
 			t.Fatalf("accepted %v", args)
 		}
 	}
+	for _, args := range [][]string{{"-dns-enabled", "-dns-ttl=0"}, {"-dns-enabled", "-dns-ttl=500ms"}, {"-dns-enabled", "-dns-ttl=61s"}, {"-dns-enabled", "-dns-zone=bad..zone"}, {"-dns-enabled", "-dns-node=bad_node"}, {"-dns-enabled", "-dns-node=local"}} {
+		if err := run(context.Background(), logger, args); err == nil {
+			t.Fatalf("accepted DNS configuration %v", args)
+		}
+	}
 	if err := run(context.Background(), logger, []string{"-h"}); err != nil {
 		t.Fatal(err)
 	}

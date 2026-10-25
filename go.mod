@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/containerd/errdefs v1.0.0
+	github.com/miekg/dns v1.1.73
 	github.com/moby/moby/api v1.56.1
 	github.com/moby/moby/client v0.6.1
 	go.opentelemetry.io/contrib/bridges/otelslog v0.21.0

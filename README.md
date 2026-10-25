@@ -33,6 +33,9 @@ Ctrl+C or SIGTERM stops and joins observation, closes Docker, and flushes teleme
 with a fresh five-second context. Docker failures exit nonzero; there is no retry
 supervisor. Telemetry transport failures warn without stopping observation.
 
+See [embedded local DNS](docs/local-dns.md) for opt-in A/AAAA and SRV discovery
+inside `agentd`. It currently uses only local Docker observations.
+
 ## Architecture
 
 ```text
@@ -40,6 +43,7 @@ control/cmd/agentd                 construction, flags, signals, cleanup
 control/internal/app              Run(ctx), observations, OTel instrumentation
 control/internal/runtime          own Container/Event types, Runtime boundary, View
 control/internal/runtime/docker   Docker SDK adapter and type translation
+control/internal/discovery        local discovery index and embedded UDP/TCP DNS
 control/internal/observability    native OTel providers, logging bridge, bootstrap
 docs/standards/observability.md    shared Go/Rust/Node signal contract
 
@@ -54,8 +58,9 @@ Docker says not found. A periodic full list repairs missed events from Docker's
 bounded event history. This is read-only observation, not reconciliation.
 
 Docker remains the source of truth. The disposable, concurrency-safe view stores
-ID, name, image reference, state, and labels. Readers receive copies. It is
-internal and eventually consistent; the observer has no public API or persistence.
+ID, name, image reference, state, health, labels, and network addresses. Readers receive copies. It is
+internal and eventually consistent; it has no persistence. When DNS is enabled,
+successful observations also publish an immutable local service index.
 
 See [configuration RPC](docs/configuration-rpc.md) for the opt-in authenticated
 HTTP API, file semantics, writable mounts and Coolify integration boundary.

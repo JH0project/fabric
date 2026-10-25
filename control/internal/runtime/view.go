@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"slices"
 	"sort"
 	"sync"
 )
@@ -56,6 +57,13 @@ func (v *View) Snapshot() []Container {
 }
 
 func clone(c Container) Container {
+	if c.Networks != nil {
+		networks := make(map[string][]string, len(c.Networks))
+		for name, addresses := range c.Networks {
+			networks[name] = slices.Clone(addresses)
+		}
+		c.Networks = networks
+	}
 	if c.Labels != nil {
 		labels := make(map[string]string, len(c.Labels))
 		for k, value := range c.Labels {

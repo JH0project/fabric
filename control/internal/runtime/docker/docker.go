@@ -15,7 +15,12 @@ import (
 	"github.com/JH0project/fabric/control/internal/runtime"
 )
 
-type Runtime struct{ client *client.Client }
+type Runtime struct {
+	client *client.Client
+	// IncludeDiscovery enables health/network inspect during full snapshots
+	// for explicitly labelled running containers and network invalidations.
+	IncludeDiscovery bool
+}
 
 // New honors DOCKER_HOST, DOCKER_TLS_VERIFY, DOCKER_CERT_PATH and
 // DOCKER_API_VERSION. API negotiation is enabled by default by the SDK.
@@ -36,6 +41,17 @@ func (r *Runtime) List(ctx context.Context) ([]runtime.Container, error) {
 	}
 	containers := make([]runtime.Container, 0, len(result.Items))
 	for _, c := range result.Items {
+		if r.IncludeDiscovery && c.State == "running" && c.Labels["fabric.discovery.service"] != "" {
+			full, err := r.Inspect(ctx, c.ID)
+			if errors.Is(err, runtime.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			containers = append(containers, full)
+			continue
+		}
 		name := ""
 		if len(c.Names) > 0 {
 			name = strings.TrimPrefix(c.Names[0], "/")
@@ -59,17 +75,39 @@ func (r *Runtime) Inspect(ctx context.Context, id string) (runtime.Container, er
 	if c.State == nil || c.Config == nil {
 		return runtime.Container{}, errors.New("incomplete Docker container inspect response")
 	}
-	return runtime.Container{
+	container := runtime.Container{
 		ID: c.ID, Name: strings.TrimPrefix(c.Name, "/"), Image: c.Config.Image,
 		State: string(c.State.Status), Labels: c.Config.Labels,
-	}, nil
+	}
+	if c.State.Health != nil {
+		container.Health = string(c.State.Health.Status)
+	}
+	if c.NetworkSettings != nil {
+		container.Networks = make(map[string][]string)
+		for name, network := range c.NetworkSettings.Networks {
+			if network == nil {
+				continue
+			}
+			if network.IPAddress.IsValid() {
+				container.Networks[name] = append(container.Networks[name], network.IPAddress.String())
+			}
+			if network.GlobalIPv6Address.IsValid() {
+				container.Networks[name] = append(container.Networks[name], network.GlobalIPv6Address.String())
+			}
+		}
+	}
+	return container, nil
 }
 
 func (r *Runtime) Watch(ctx context.Context, since time.Time, emit func(runtime.Event) error) error {
 	watchCtx, cancel := context.WithCancel(ctx)
+	filters := client.Filters{}.Add("type", "container")
+	if r.IncludeDiscovery {
+		filters = filters.Add("type", "network")
+	}
 	stream := r.client.Events(watchCtx, client.EventsListOptions{
 		Since:   since.UTC().Format(time.RFC3339Nano),
-		Filters: client.Filters{}.Add("type", "container"),
+		Filters: filters,
 	})
 	// The SDK closes Err when its reader exits. Join that reader on every
 	// path, including callback failure, before the client can be closed.
@@ -91,6 +129,12 @@ func (r *Runtime) Watch(ctx context.Context, since time.Time, emit func(runtime.
 			}
 			return err
 		case message := <-stream.Messages:
+			if message.Type == "network" {
+				if message.Action != "connect" && message.Action != "disconnect" {
+					continue
+				}
+				message.Actor.ID = message.Actor.Attributes["container"]
+			}
 			if message.Actor.ID == "" {
 				continue
 			}

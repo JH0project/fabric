@@ -7,11 +7,16 @@ import (
 
 func TestViewOwnershipAndReplacement(t *testing.T) {
 	v := &View{}
-	c := Container{ID: "a", Labels: map[string]string{"owner": "original"}}
+	c := Container{ID: "a", Labels: map[string]string{"owner": "original"}, Networks: map[string][]string{"mesh": {"fd00::1"}}}
 	v.Upsert(c)
 	c.Labels["owner"] = "caller"
+	c.Networks["mesh"][0] = "fd00::2"
 	s := v.Snapshot()
 	s[0].Labels["owner"] = "reader"
+	s[0].Networks["mesh"][0] = "fd00::3"
+	if v.Snapshot()[0].Networks["mesh"][0] != "fd00::1" {
+		t.Fatal("aliased network addresses")
+	}
 	if got := v.Snapshot()[0].Labels["owner"]; got != "original" {
 		t.Fatalf("aliased labels: %s", got)
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"slices"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -26,6 +27,9 @@ type App struct {
 	Tracer          trace.Tracer
 	Meter           metric.Meter
 	telemetry       *instruments
+	// OnSnapshot receives owned copies after a successful observation. It must
+	// only perform local work; remote synchronization must not block observation.
+	OnSnapshot func([]runtime.Container)
 }
 
 func (a *App) Run(ctx context.Context) error {
@@ -114,6 +118,7 @@ func (a *App) refresh(ctx context.Context) (err error) {
 		a.logChange(ctx, c)
 	}
 	a.View.Replace(containers)
+	a.publishSnapshot()
 	present := make(map[string]bool, len(containers))
 	for _, c := range containers {
 		present[c.ID] = true
@@ -148,13 +153,20 @@ func (a *App) observe(ctx context.Context, event runtime.Event) (err error) {
 		a.logChange(ctx, c)
 		a.View.Upsert(c)
 	}
+	a.publishSnapshot()
 	a.Logger.DebugContext(ctx, "runtime event observed", "container.id", event.ContainerID, "fabric.runtime.event.action", event.Action)
 	return nil
 }
 
+func (a *App) publishSnapshot() {
+	if a.OnSnapshot != nil {
+		a.OnSnapshot(a.View.Snapshot())
+	}
+}
+
 func (a *App) logChange(ctx context.Context, c runtime.Container) {
 	old, ok := a.View.Get(c.ID)
-	if ok && old.State == c.State && old.Name == c.Name && old.Image == c.Image && maps.Equal(old.Labels, c.Labels) {
+	if ok && old.State == c.State && old.Name == c.Name && old.Image == c.Image && old.Health == c.Health && maps.Equal(old.Labels, c.Labels) && maps.EqualFunc(old.Networks, c.Networks, slices.Equal[[]string]) {
 		return
 	}
 	a.Logger.InfoContext(ctx, "container state changed", "container.id", c.ID, "container.name", c.Name, "container.image.name", c.Image, "container.state", c.State)

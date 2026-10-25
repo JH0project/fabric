@@ -15,6 +15,7 @@ import (
 
 	"github.com/JH0project/fabric/control/internal/app"
 	"github.com/JH0project/fabric/control/internal/configuration"
+	"github.com/JH0project/fabric/control/internal/discovery"
 	"github.com/JH0project/fabric/control/internal/observability"
 	"github.com/JH0project/fabric/control/internal/rpc"
 	"github.com/JH0project/fabric/control/internal/runtime"
@@ -44,6 +45,12 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 	rpcEnabled := flags.Bool("rpc-enabled", os.Getenv("FABRIC_RPC_ENABLED") == "true", "enable authenticated configuration RPC")
 	rpcListen := flags.String("rpc-listen", envOr("FABRIC_RPC_LISTEN", "127.0.0.1:9781"), "configuration RPC listen address")
 	roots := flags.String("configuration-roots", os.Getenv("FABRIC_CONFIGURATION_ROOTS"), "comma-separated writable configuration roots")
+	dnsEnabled := flags.Bool("dns-enabled", os.Getenv("FABRIC_DNS_ENABLED") == "true", "enable embedded local service DNS")
+	dnsListen := flags.String("dns-listen", envOr("FABRIC_DNS_LISTEN", "127.0.0.1:8600"), "DNS UDP and TCP listen address")
+	dnsZone := flags.String("dns-zone", envOr("FABRIC_DNS_ZONE", "fabric.internal"), "authoritative service DNS zone")
+	hostname, _ := os.Hostname()
+	dnsNode := flags.String("dns-node", envOr("FABRIC_NODE_ID", strings.ToLower(hostname)), "node DNS label; local is reserved")
+	dnsTTL := flags.Duration("dns-ttl", 5*time.Second, "DNS record and negative-cache TTL (whole seconds, 1s to 1m)")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -62,6 +69,17 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 	}
 	if *logFormat != "text" && *logFormat != "json" {
 		return errors.New("log format must be text or json")
+	}
+	var dnsServer *discovery.DNS
+	if *dnsEnabled {
+		if *dnsTTL < time.Second || *dnsTTL > time.Minute || *dnsTTL%time.Second != 0 {
+			return errors.New("DNS TTL must be a whole number of seconds between 1s and 1m")
+		}
+		cache, cacheErr := discovery.NewCache(*dnsZone, *dnsNode)
+		if cacheErr != nil {
+			return cacheErr
+		}
+		dnsServer = &discovery.DNS{Cache: cache, TTL: uint32(*dnsTTL / time.Second), Address: *dnsListen}
 	}
 	if ctx.Err() != nil {
 		return nil
@@ -92,9 +110,31 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, rt.Close()) }()
+	rt.IncludeDiscovery = *dnsEnabled
 	a := app.App{
 		Runtime: rt, View: &runtime.View{}, Logger: logger,
 		RequestTimeout: *timeout, RefreshInterval: *refresh,
+	}
+	var additional []func(context.Context) error
+	if dnsServer != nil {
+		dnsServer.OnListening = func(address string) {
+			logger.InfoContext(ctx, "embedded DNS listening", "server.address", address, "fabric.dns.zone", dnsServer.Cache.Zone)
+		}
+		previousInvalid := ""
+		a.OnSnapshot = func(containers []runtime.Container) {
+			endpoints, invalid := discovery.FromContainers(dnsServer.Cache.Node, containers)
+			if key := strings.Join(invalid, ","); key != previousInvalid {
+				if len(invalid) != 0 {
+					logger.Warn("invalid discovery registrations omitted", "fabric.discovery.invalid", len(invalid))
+				}
+				previousInvalid = key
+			}
+			if err := dnsServer.Cache.Replace(endpoints); err != nil {
+				logger.Warn("DNS snapshot retained", "error", err)
+			}
+		}
+		additional = append(additional, dnsServer.Run)
+		logger.InfoContext(ctx, "embedded DNS enabled", "server.address", *dnsListen, "fabric.dns.zone", dnsServer.Cache.Zone, "fabric.dns.scope", "local")
 	}
 	var server *rpc.Server
 	if *rpcEnabled {
@@ -122,7 +162,7 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 		}
 	}
 	logger.InfoContext(ctx, "agentd starting")
-	if err := runServices(ctx, a.Run, server); err != nil {
+	if err := runServices(ctx, a.Run, server, additional...); err != nil {
 		return fmt.Errorf("agentd: %w", err)
 	}
 	logger.InfoContext(ctx, "agentd stopped")
@@ -154,16 +194,24 @@ func envOr(key, fallback string) string {
 	}
 	return fallback
 }
-func runServices(ctx context.Context, observe func(context.Context) error, server *rpc.Server) error {
-	if server == nil {
+func runServices(ctx context.Context, observe func(context.Context) error, server *rpc.Server, additional ...func(context.Context) error) error {
+	services := append([]func(context.Context) error{observe}, additional...)
+	if server != nil {
+		services = append(services, server.Run)
+	}
+	if len(services) == 1 {
 		return observe(ctx)
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	done := make(chan error, 2)
-	go func() { done <- observe(ctx) }()
-	go func() { done <- server.Run(ctx) }()
+	done := make(chan error, len(services))
+	for _, service := range services {
+		go func() { done <- service(ctx) }()
+	}
 	first := <-done
 	cancel()
-	return errors.Join(first, <-done)
+	for i := 1; i < len(services); i++ {
+		first = errors.Join(first, <-done)
+	}
+	return first
 }

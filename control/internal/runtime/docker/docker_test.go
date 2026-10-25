@@ -142,3 +142,54 @@ func TestWatchCancellationAndHTTPFailure(t *testing.T) {
 		t.Fatal("HTTP failure swallowed")
 	}
 }
+
+func TestDiscoverySnapshotInspectsHealthAndNetworks(t *testing.T) {
+	r := testRuntime(t, func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch req.URL.Path {
+		case "/v1.51/containers/json":
+			fmt.Fprint(w, `[{"Id":"a","State":"running","Labels":{"fabric.discovery.service":"api"}},{"Id":"gone","State":"running","Labels":{"fabric.discovery.service":"api"}},{"Id":"unlabelled","State":"running"}]`)
+		case "/v1.51/containers/a/json":
+			fmt.Fprint(w, `{"Id":"a","Name":"/api","Config":{"Image":"alpine","Labels":{"fabric.discovery.service":"api"}},"State":{"Status":"running","Health":{"Status":"unhealthy"}},"NetworkSettings":{"Networks":{"mesh":{"IPAddress":"10.42.0.2","GlobalIPv6Address":"fd00::2"}}}}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"message":"No such container"}`)
+		}
+	})
+	r.IncludeDiscovery = true
+	containers, err := r.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(containers) != 2 || containers[0].Health != "unhealthy" || len(containers[0].Networks["mesh"]) != 2 {
+		t.Fatalf("discovery mapping: %+v", containers)
+	}
+	if containers[0].Networks["mesh"][0] != "10.42.0.2" || containers[0].Networks["mesh"][1] != "fd00::2" {
+		t.Fatal("IP mapping")
+	}
+}
+
+func TestNetworkEventsInvalidateContainer(t *testing.T) {
+	r := testRuntime(t, func(w http.ResponseWriter, req *http.Request) {
+		if !strings.Contains(req.URL.Query().Get("filters"), "network") {
+			t.Error("missing network filter")
+		}
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		fmt.Fprintln(w, `{"Type":"network","Action":"connect","Actor":{"ID":"network-id","Attributes":{"container":"container-id"}}}`)
+		w.(http.Flusher).Flush()
+		<-req.Context().Done()
+	})
+	r.IncludeDiscovery = true
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	stop := errors.New("stop")
+	err := r.Watch(ctx, time.Now(), func(e runtime.Event) error {
+		if e.ContainerID != "container-id" || e.Action != "connect" {
+			t.Errorf("bad network event: %+v", e)
+		}
+		return stop
+	})
+	if !errors.Is(err, stop) {
+		t.Fatal(err)
+	}
+}

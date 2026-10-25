@@ -15,6 +15,10 @@ type Container struct {
 	Image  string
 	State  string
 	Labels map[string]string
+	// Health is empty when no Docker healthcheck exists. Networks contains
+	// literal IPv4/IPv6 addresses by Docker network name, never host bindings.
+	Health   string
+	Networks map[string][]string
 }
 
 // Event is an invalidation hint, not authoritative container state.
