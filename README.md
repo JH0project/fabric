@@ -11,6 +11,10 @@ deployment document without database, filesystem or Docker access.
 
 ## Run
 
+See [database and node migrations](docs/database.md) for the initial GORM node
+registry and explicit versioned migration command. RuntimeInstance database
+activation is deferred until its own migration is implemented.
+
 Requires Go 1.26+ and a running Docker Engine accessible to the current user.
 
 ```sh
