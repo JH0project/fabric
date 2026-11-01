@@ -189,8 +189,9 @@ func newResource(ctx context.Context, cfg Config) (*resource.Resource, error) {
 		attribute.String("service.name", cfg.ServiceName), attribute.String("service.version", cfg.ServiceVersion),
 		attribute.String("service.instance.id", hex.EncodeToString(id)),
 		attribute.String("deployment.environment.name", value("FABRIC_ENVIRONMENT", "development")),
-		attribute.String("jh0project.node.id", value("FABRIC_NODE_ID", host)),
-		attribute.String("jh0project.node.name", value("FABRIC_NODE_NAME", host)),
+		attribute.String("jh0project.node.id", value("FABRIC_NODE_SEQUENCE_ID", value("FABRIC_NODE_ID", host))),
+		attribute.String("jh0project.node.uuid", value("FABRIC_NODE_UUID", "unknown")),
+		attribute.String("jh0project.node.name", value("FABRIC_NODE_NAME", value("FABRIC_NODE_ID", host))),
 		attribute.String("jh0project.node.region", value("FABRIC_NODE_REGION", "unknown")),
 		attribute.String("jh0project.node.zone", value("FABRIC_NODE_ZONE", "unknown")),
 	), resource.WithFromEnv())

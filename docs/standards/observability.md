@@ -21,6 +21,7 @@ All signals MUST share these resource attributes:
 | `service.instance.id` | Unique process instance, changes on restart |
 | `deployment.environment.name` | Deployment environment |
 | `jh0project.node.id` | Stable operator-assigned node identity |
+| `jh0project.node.uuid` | Persistent node registry UUID |
 | `jh0project.node.name` | Human-readable node name |
 | `jh0project.node.region` | Operator-assigned region |
 | `jh0project.node.zone` | Operator-assigned zone |
@@ -31,6 +32,14 @@ topology. Do not persist instance identity as node identity. Use standard OTel
 semantic conventions where available, `jh0project.*` for project-wide concepts,
 and `fabric.*` for Fabric-specific concepts. Do not include secrets or arbitrary
 container labels in telemetry.
+
+Production sets `FABRIC_NODE_UUID`, `FABRIC_NODE_SEQUENCE_ID` (the Ansible integer),
+`FABRIC_NODE_NAME`, `FABRIC_NODE_REGION`, and `FABRIC_NODE_ZONE`. The numeric ID
+is represented as an identifier string in telemetry. `FABRIC_NODE_ID` remains a
+legacy name/DNS-label fallback; it must not be changed to an integer in existing
+deployments. `agentd starting` logs these identities, release version, OS/CPU,
+Go version, refresh interval, and enabled features once. It never dumps the
+environment, authentication material, or database/broker connection strings.
 
 ## Logs and errors
 

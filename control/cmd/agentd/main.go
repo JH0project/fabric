@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	goruntime "runtime"
 	"runtime/debug"
 	"strings"
 	"syscall"
@@ -51,7 +52,7 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 	dnsListen := flags.String("dns-listen", envOr("FABRIC_DNS_LISTEN", "127.0.0.1:8600"), "DNS UDP and TCP listen address")
 	dnsZone := flags.String("dns-zone", envOr("FABRIC_DNS_ZONE", "fabric.internal"), "authoritative service DNS zone")
 	hostname, _ := os.Hostname()
-	dnsNode := flags.String("dns-node", envOr("FABRIC_NODE_ID", strings.ToLower(hostname)), "node DNS label; local is reserved")
+	dnsNode := flags.String("dns-node", envOr("FABRIC_NODE_NAME", envOr("FABRIC_NODE_ID", strings.ToLower(hostname))), "node DNS label; local is reserved")
 	dnsTTL := flags.Duration("dns-ttl", 5*time.Second, "DNS record and negative-cache TTL (whole seconds, 1s to 1m)")
 	inventoryEnabled := flags.Bool("inventory-enabled", os.Getenv("FABRIC_INVENTORY_ENABLED") == "true", "publish observed RuntimeInstances to Core NATS")
 	if err := flags.Parse(args); err != nil {
@@ -204,7 +205,18 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 		}
 		components = append(components, server)
 	}
-	logger.InfoContext(ctx, "agentd starting")
+	logger.InfoContext(ctx, "agentd starting",
+		"service.name", "agentd", "service.version", buildVersion(),
+		"jh0project.node.uuid", envOr("FABRIC_NODE_UUID", "unknown"),
+		"jh0project.node.id", envOr("FABRIC_NODE_SEQUENCE_ID", envOr("FABRIC_NODE_ID", hostname)),
+		"jh0project.node.name", envOr("FABRIC_NODE_NAME", *dnsNode),
+		"jh0project.node.region", envOr("FABRIC_NODE_REGION", "unknown"),
+		"jh0project.node.zone", envOr("FABRIC_NODE_ZONE", "unknown"),
+		"os.type", goruntime.GOOS, "host.arch", goruntime.GOARCH,
+		"process.runtime.version", goruntime.Version(),
+		"fabric.dns.enabled", *dnsEnabled, "fabric.rpc.enabled", *rpcEnabled,
+		"fabric.inventory.enabled", *inventoryEnabled,
+		"fabric.observation.refresh_interval", refresh.String())
 	if err := app.New(components...).Run(ctx); err != nil {
 		return fmt.Errorf("agentd: %w", err)
 	}
