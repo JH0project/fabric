@@ -143,6 +143,32 @@ func TestWatchCancellationAndHTTPFailure(t *testing.T) {
 	}
 }
 
+func TestWatchIgnoresExecButKeepsLifecycleAndHealth(t *testing.T) {
+	actions := []string{"exec_create: /bin/sh", "create", "exec_start: /bin/sh", "start", "exec_die", "health_status: unhealthy", "die"}
+	r := testRuntime(t, func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		for _, action := range actions {
+			fmt.Fprintf(w, "{\"Type\":\"container\",\"Action\":%q,\"Actor\":{\"ID\":\"a\"}}\n", action)
+		}
+		w.(http.Flusher).Flush()
+		<-req.Context().Done()
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var got []string
+	stop := errors.New("received all state events")
+	err := r.Watch(ctx, time.Now(), func(event runtime.Event) error {
+		got = append(got, event.Action)
+		if len(got) == 4 {
+			return stop
+		}
+		return nil
+	})
+	if !errors.Is(err, stop) || strings.Join(got, ",") != "create,start,health_status: unhealthy,die" {
+		t.Fatalf("state events lost or exec events leaked: %v %v", got, err)
+	}
+}
+
 func TestDiscoverySnapshotInspectsHealthAndNetworks(t *testing.T) {
 	r := testRuntime(t, func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

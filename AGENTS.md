@@ -86,6 +86,10 @@ inventory synchronization while preserving these boundaries.
   Every agent-created commit must be unsigned (`git -c commit.gpgsign=false commit`).
   Preserve unrelated working-tree/staged changes. This supersedes earlier agent
   signing requirements; committing alone does not authorize push or deployment.
+- After every deployment outcome, save a concise AgentMemory record and operator
+  report: changed scope, exact release/configuration identity, affected resources,
+  actual validation, outcome and remaining issues, plus rollback/evidence paths.
+  Include failed and partial outcomes honestly; never save secrets.
 - Work directly in `C:\Users\Heihe\Downloads\jh0project-fabric`. Use the task's
   `work/` only for temporary binaries, fixtures, and lab data, not another source
   checkout. Prefer direct file patches in the actual repo.

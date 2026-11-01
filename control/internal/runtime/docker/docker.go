@@ -135,6 +135,12 @@ func (r *Runtime) Watch(ctx context.Context, since time.Time, emit func(runtime.
 			}
 			return err
 		case message := <-stream.Messages:
+			// Health checks and management commands generate exec events without
+			// changing container metadata. Actual health changes have their own
+			// health_status event, and process termination still emits die.
+			if strings.HasPrefix(string(message.Action), "exec_") {
+				continue
+			}
 			if message.Type == "network" {
 				if message.Action != "connect" && message.Action != "disconnect" {
 					continue

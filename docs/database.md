@@ -69,6 +69,9 @@ Container observations and explicit removal tombstones are each written as one
 bounded batch, avoiding a network/consensus round trip per container. Each
 persistence attempt has a 30-second deadline; it never blocks local DNS or the
 Docker observer callback.
+Docker exec lifecycle events (including health-check execution) do not trigger
+snapshots. Actual container lifecycle, health-status and network events are
+retained, alongside the periodic complete inventory.
 It does not migrate at startup. Its database URL is `FABRIC_DATABASE_URL`;
 `FABRIC_INVENTORY_DATABASE_URL` remains a compatibility fallback.
 
