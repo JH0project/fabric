@@ -9,10 +9,16 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"log/slog"
 	"time"
+
+	"github.com/JH0project/fabric/control/internal/environment"
 )
 
 type FileWriter interface {
 	Write(context.Context, File) (string, error)
+}
+
+type EnvironmentResolver interface {
+	Resolve(context.Context, environment.Reference) ([]environment.Variable, error)
 }
 type Request struct {
 	ServiceID string `json:"service_id"`
@@ -29,10 +35,12 @@ type Result struct {
 	Files   []FileResult `json:"files"`
 }
 type Service struct {
-	writer   FileWriter
-	logger   *slog.Logger
-	count    metric.Int64Counter
-	duration metric.Float64Histogram
+	// Environments is an optional domain dependency; SQL and decryption stay in adapters.
+	Environments EnvironmentResolver
+	writer       FileWriter
+	logger       *slog.Logger
+	count        metric.Int64Counter
+	duration     metric.Float64Histogram
 }
 
 func NewService(writer FileWriter, logger *slog.Logger) (*Service, error) {
@@ -45,14 +53,14 @@ func NewService(writer FileWriter, logger *slog.Logger) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Service{writer, logger, count, duration}, nil
+	return &Service{writer: writer, logger: logger, count: count, duration: duration}, nil
 }
 func (s *Service) Apply(ctx context.Context, request Request) Result {
 	ctx, span := otel.Tracer("github.com/JH0project/fabric/control/configuration").Start(ctx, "configuration.apply")
 	start := time.Now()
 	result := Result{Applied: true, Files: make([]FileResult, 0, len(request.Files))}
 	outcome := "success"
-	files, rendered := prepare(ctx, request.Files)
+	files, rendered := s.prepare(ctx, request)
 	if !rendered.Rendered {
 		result.Applied = false
 		outcome = "error"

@@ -35,6 +35,16 @@ func TestArgumentsAndCancelledBootstrap(t *testing.T) {
 	}
 }
 
+func TestCoolifyEnvironmentRequiresConfigurationRPC(t *testing.T) {
+	t.Setenv("FABRIC_COOLIFY_DB_ENV_ENABLED", "true")
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for _, args := range [][]string{{"-rpc-enabled=false"}, {"-rpc-enabled=true", "-configuration-roots="}} {
+		if err := run(context.Background(), logger, args); err == nil {
+			t.Fatal("accepted incomplete Coolify environment bootstrap")
+		}
+	}
+}
+
 type testApplier struct{}
 
 type testComponent struct{ run func(context.Context) error }

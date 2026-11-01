@@ -1,0 +1,58 @@
+[
+    {
+        "cipher": "AES-256-CBC",
+        "key": "base64:a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=",
+        "serialized": true,
+        "plaintext": "synthetic-only: caf\u00e9\n\"quoted\"\u0000",
+        "ciphertext": "eyJpdiI6ImJRYWtoMGJNNU0zeWsxZWJQbFhuSkE9PSIsInZhbHVlIjoid0RyakdHVFFuWGRLR1UvQjZwNTJ4ZGEwaEhFenY0ekN1Q2tnN1gvSmFXY2dFTzdOcVV4djRKakJ2dlg3OGlNbyIsIm1hYyI6IjA0N2Y1Y2ZhODg0NmVlZWNkYTJjOTZkYmM2NWI5NGM2Mjk1Yjg2MzEyOTI0NGMwZmQzODY1ZDI2ZmY3ZjQxYmYiLCJ0YWciOiIifQ=="
+    },
+    {
+        "cipher": "AES-256-CBC",
+        "key": "base64:a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=",
+        "serialized": false,
+        "plaintext": "synthetic-only: caf\u00e9\n\"quoted\"\u0000",
+        "ciphertext": "eyJpdiI6IjJOaTZJeEhVYkJOK1NXbEEvY1JmaVE9PSIsInZhbHVlIjoiSTgvakI3aXJJdG5NejF0a2lCdHJJQkFsOTdESHRhNzhVNk1yTUtqOTI1Yz0iLCJtYWMiOiIzOTFmN2FjN2Q0MjIxOTNiZTVlYmQ0ZDdlYzQ1MGIwZTVmN2NhYzBkOGY1ZWNkOTM1NzFlOTgwOTVmOGVhZGM4IiwidGFnIjoiIn0="
+    },
+    {
+        "cipher": "AES-128-CBC",
+        "key": "base64:a2tra2tra2tra2tra2traw==",
+        "serialized": true,
+        "plaintext": "synthetic-only: caf\u00e9\n\"quoted\"\u0000",
+        "ciphertext": "eyJpdiI6InRJVWNvUS9qTkxaelNIRGNySlN6QVE9PSIsInZhbHVlIjoiTEk2OFBuR05qQzM2R1dURGc5cnlFR3NxdUd6RjVYR3pjNGFvSHUwTHpZRmJRL0N5dnQ3SjhQekxTem9NOTRPZyIsIm1hYyI6IjBjN2I3MTlkMjc0MjJhZDE3M2I5NjE5ODUzYjU1ODQ2NDUyNjk3N2JjNzU2NzY3NmI1Yjg3ZGJlOTQyNjNhOGYiLCJ0YWciOiIifQ=="
+    },
+    {
+        "cipher": "AES-128-CBC",
+        "key": "base64:a2tra2tra2tra2tra2traw==",
+        "serialized": false,
+        "plaintext": "synthetic-only: caf\u00e9\n\"quoted\"\u0000",
+        "ciphertext": "eyJpdiI6ImZKbU9rSE9VSXFhbmxkR25ldFRyM3c9PSIsInZhbHVlIjoiVHpPN042aU5SV0JLcUZLS1B3NnlYdkZINWRVcnFhRS9hK1Q3NHA1T0xYQT0iLCJtYWMiOiJkOThlODcyMTM2ZTdmMGM3YzYzOWQzOWY1MWY1YTRlNDc5YTVkYzQ4NDUxMzc1Y2ZmYzYxNWI4ZGUxZjVkZTc5IiwidGFnIjoiIn0="
+    },
+    {
+        "cipher": "AES-256-GCM",
+        "key": "base64:a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=",
+        "serialized": true,
+        "plaintext": "synthetic-only: caf\u00e9\n\"quoted\"\u0000",
+        "ciphertext": "eyJpdiI6IkxZRTRMbHQweGVndERDRkEiLCJ2YWx1ZSI6InAwd0NSeisvSkwvbCthU1FIaG5HdmZ5c1NxTmNlVjBFVXJpVkxoVlUvL2c1TlZrdFlGV04iLCJtYWMiOiIiLCJ0YWciOiJQMU9GamVXUzNqTUMvY0YxM2l5VWFRPT0ifQ=="
+    },
+    {
+        "cipher": "AES-256-GCM",
+        "key": "base64:a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=",
+        "serialized": false,
+        "plaintext": "synthetic-only: caf\u00e9\n\"quoted\"\u0000",
+        "ciphertext": "eyJpdiI6IjNhbVJ6NG9HZzFRZGQ3eGYiLCJ2YWx1ZSI6InRhaTJhYTNnb0JaTkF5Z1RObnpCWFN2TEViR2lGTEZzSWR1VGhSaDFVdz09IiwibWFjIjoiIiwidGFnIjoiQ00zTlFqc3E2ZUk3YlNGTjdXU0Rldz09In0="
+    },
+    {
+        "cipher": "AES-128-GCM",
+        "key": "base64:a2tra2tra2tra2tra2traw==",
+        "serialized": true,
+        "plaintext": "synthetic-only: caf\u00e9\n\"quoted\"\u0000",
+        "ciphertext": "eyJpdiI6Imp1b1BMZlNFNmNNUWdxVGgiLCJ2YWx1ZSI6IkVFVHZaR0J5WDAvczJ6NW9Qam1DNmpwNHkzUmo5bHQ0ZmtrYWZ5N1FGUURkRnVNRVFZZmYiLCJtYWMiOiIiLCJ0YWciOiJqb0xZMG5aR0Q1Sks5aVdpcGRCM1dnPT0ifQ=="
+    },
+    {
+        "cipher": "AES-128-GCM",
+        "key": "base64:a2tra2tra2tra2tra2traw==",
+        "serialized": false,
+        "plaintext": "synthetic-only: caf\u00e9\n\"quoted\"\u0000",
+        "ciphertext": "eyJpdiI6IkEyNFJvOTdlMXBqR1ZDcXYiLCJ2YWx1ZSI6IkF6VTdCa2xlbjJZODZaUCs0YWZDanB3bXFkd05QSWo4ZG1vSkMxVTF3Zz09IiwibWFjIjoiIiwidGFnIjoibEdxVmFBb0FobkI5UHFtditVNGg0dz09In0="
+    }
+]

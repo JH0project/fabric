@@ -6,6 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"io/fs"
+	"strconv"
+
+	"github.com/JH0project/fabric/control/internal/environment"
 )
 
 const MaxRenderedBatchBytes = 8 * 1024 * 1024
@@ -51,6 +54,8 @@ func errorCode(err error) string {
 		return "template_limit"
 	case errors.Is(err, ErrDigestMismatch):
 		return "digest_mismatch"
+	case errors.Is(err, environment.ErrUnavailable):
+		return "environment_unavailable"
 	case errors.Is(err, ErrInvalid):
 		return "invalid_file"
 	case errors.Is(err, ErrConflict):
@@ -110,6 +115,59 @@ func prepare(ctx context.Context, files []File) ([]File, RenderResult) {
 // Render validates and renders the complete batch without accessing destination
 // files. Its receipts allow a caller to preflight all nodes before applying.
 func (s *Service) Render(ctx context.Context, request Request) RenderResult {
-	_, result := prepare(ctx, request.Files)
+	_, result := s.prepare(ctx, request)
+	return result
+}
+
+// Resolve external inputs once per request, then run the same pure preparation
+// used by inline templates. No file can be written after a lookup failure.
+func (s *Service) prepare(ctx context.Context, request Request) ([]File, RenderResult) {
+	files := append([]File(nil), request.Files...)
+	resolved := map[environment.Reference][]environment.Variable{}
+	for i, file := range files {
+		if file.Template == nil || file.Template.Environment == nil {
+			continue
+		}
+		ref := *file.Template.Environment
+		_, hasInline := file.Template.Data["env"]
+		node, ok := file.Template.Data["node"].(map[string]any)
+		if !ref.Valid() || ref.ApplicationUUID != request.ServiceID || hasInline || !ok || node["id"] != strconv.FormatInt(ref.ServerID, 10) || s.Environments == nil {
+			return nil, environmentFailure(ctx, request.Files)
+		}
+		values, ok := resolved[ref]
+		if !ok {
+			var err error
+			values, err = s.Environments.Resolve(ctx, ref)
+			if err != nil {
+				return nil, environmentFailure(ctx, request.Files)
+			}
+			resolved[ref] = values
+		}
+		data := make(map[string]any, len(file.Template.Data)+1)
+		for k, v := range file.Template.Data {
+			data[k] = v
+		}
+		env := make([]any, 0, len(values))
+		for _, v := range values {
+			env = append(env, map[string]any{"key": v.Key, "value": v.Value})
+		}
+		data["env"] = env
+		spec := *file.Template
+		spec.Data = data
+		spec.Environment = nil
+		files[i].Template = &spec
+	}
+	return prepare(ctx, files)
+}
+
+func environmentFailure(ctx context.Context, files []File) RenderResult {
+	result := RenderResult{Files: make([]RenderedFile, 0, len(files))}
+	err := ctx.Err()
+	if err == nil {
+		err = environment.ErrUnavailable
+	}
+	for _, file := range files {
+		result.Files = append(result.Files, RenderedFile{Path: file.Path, Code: errorCode(err)})
+	}
 	return result
 }

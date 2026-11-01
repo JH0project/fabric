@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -8,7 +9,49 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/JH0project/fabric/control/internal/configuration"
+	"github.com/JH0project/fabric/control/internal/environment"
 )
+
+type rpcEnvironment struct{ calls int }
+
+func (e *rpcEnvironment) Resolve(context.Context, environment.Reference) ([]environment.Variable, error) {
+	e.calls++
+	return []environment.Variable{{Key: "KEY", Value: "synthetic-private-value"}}, nil
+}
+
+func TestDatabaseEnvironmentRPCAuthenticatesAndReturnsReceiptsOnly(t *testing.T) {
+	s, dir := setup(t)
+	source := &rpcEnvironment{}
+	s.applier.(*configuration.Service).Environments = source
+	file := map[string]any{"path": filepath.Join(dir, "db-rendered"), "template": map[string]any{
+		"engine": "go-template/v1", "source": "{{range .env}}{{.value}}{{end}}",
+		"environment": map[string]any{"application_uuid": "app", "server_id": 2, "team_id": 1},
+		"data":        map[string]any{"node": map[string]any{"id": "2"}},
+	}}
+	body, _ := json.Marshal(map[string]any{"service_id": "app", "files": []any{file}})
+	if got := request(s, "POST", "/v1/configurations/render", string(body), "wrong"); got.Code != 401 || source.calls != 0 {
+		t.Fatal("lookup before authentication")
+	}
+	got := request(s, "POST", "/v1/configurations/render", string(body), testToken)
+	if got.Code != 200 || source.calls != 1 || strings.Contains(got.Body.String(), "synthetic-private-value") {
+		t.Fatal("unsafe database render response", got.Code)
+	}
+	var receipt configuration.RenderResult
+	if json.Unmarshal(got.Body.Bytes(), &receipt) != nil || !receipt.Rendered {
+		t.Fatal("invalid receipt")
+	}
+	file["expected_sha256"] = receipt.Files[0].SHA256
+	body, _ = json.Marshal(map[string]any{"service_id": "app", "files": []any{file}})
+	if got := request(s, "POST", "/v1/configurations/apply", string(body), testToken); got.Code != 200 || source.calls != 2 {
+		t.Fatal("database apply failed", got.Code)
+	}
+	text, err := os.ReadFile(filepath.Join(dir, "db-rendered"))
+	if err != nil || string(text) != "synthetic-private-value" {
+		t.Fatal("incorrect rendered file")
+	}
+}
 
 func TestTemplateRenderPreflightAndApply(t *testing.T) {
 	s, dir := setup(t)

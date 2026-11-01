@@ -1,5 +1,10 @@
 # Stateless configuration RPC
 
+The optional [Coolify environment adapter](coolify-environment.md) resolves
+managed-template runtime values directly from PostgreSQL behind a domain store
+interface. File rendering/writing stays independent of SQL. This mode is opt-in;
+the inline-data contract below remains supported during rollout.
+
 Configuration RPC is opt-in. The existing Docker observer still runs and shares
 the agent's shutdown lifecycle. There is no operation database, queue, revision
 history, background repair, or cross-node coordination.

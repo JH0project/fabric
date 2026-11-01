@@ -7,6 +7,8 @@ import (
 	"io"
 	"text/template"
 	"text/template/parse"
+
+	"github.com/JH0project/fabric/control/internal/environment"
 )
 
 const MaxTemplateBytes = 64 * 1024
@@ -20,11 +22,13 @@ var (
 )
 
 // TemplateSpec is deliberately JSON-only. The caller supplies the complete
-// inventory; Fabric neither filters peers nor injects host process state.
+// inventory. An optional environment reference is resolved by Service before the
+// pure renderer runs; Fabric never injects host process environment variables.
 type TemplateSpec struct {
-	Engine string         `json:"engine"`
-	Source string         `json:"source"`
-	Data   map[string]any `json:"data"`
+	Engine      string                 `json:"engine"`
+	Source      string                 `json:"source"`
+	Data        map[string]any         `json:"data"`
+	Environment *environment.Reference `json:"environment,omitempty"`
 }
 
 type boundedOutput struct {
@@ -159,7 +163,7 @@ func RenderTemplate(ctx context.Context, spec TemplateSpec) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if spec.Engine != "go-template/v1" {
+	if spec.Engine != "go-template/v1" || spec.Environment != nil {
 		return "", ErrTemplateInvalid
 	}
 	if len(spec.Source) > MaxTemplateBytes {

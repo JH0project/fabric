@@ -10,13 +10,16 @@ import (
 	"os/signal"
 	goruntime "runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/JH0project/fabric/control/internal/app"
 	"github.com/JH0project/fabric/control/internal/configuration"
+	"github.com/JH0project/fabric/control/internal/coolify"
 	"github.com/JH0project/fabric/control/internal/discovery"
+	"github.com/JH0project/fabric/control/internal/environment"
 	"github.com/JH0project/fabric/control/internal/inventory"
 	"github.com/JH0project/fabric/control/internal/observability"
 	"github.com/JH0project/fabric/control/internal/rpc"
@@ -63,6 +66,9 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 	}
 	if flags.NArg() != 0 {
 		return errors.New("agentd accepts no positional arguments")
+	}
+	if os.Getenv("FABRIC_COOLIFY_DB_ENV_ENABLED") == "true" && (!*rpcEnabled || strings.TrimSpace(*roots) == "") {
+		return errors.New("Coolify environment reads require RPC and configuration roots")
 	}
 	if *timeout <= 0 || *refresh <= 0 {
 		return errors.New("observation intervals must be positive")
@@ -198,6 +204,27 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 				return serviceErr
 			}
 			applier = service
+			if os.Getenv("FABRIC_COOLIFY_DB_ENV_ENABLED") == "true" {
+				serverID, parseErr := strconv.ParseInt(os.Getenv("FABRIC_COOLIFY_SERVER_ID"), 10, 64)
+				if parseErr != nil || serverID <= 0 {
+					return errors.New("Coolify environment reads require FABRIC_COOLIFY_SERVER_ID")
+				}
+				keys := []string{os.Getenv("FABRIC_COOLIFY_APP_KEY")}
+				if previous := os.Getenv("FABRIC_COOLIFY_APP_PREVIOUS_KEYS"); previous != "" {
+					keys = append(keys, strings.Split(previous, ",")...)
+				}
+				store, openErr := coolify.Open(ctx, coolify.Config{
+					Host: os.Getenv("FABRIC_COOLIFY_DB_HOST"), Port: os.Getenv("FABRIC_COOLIFY_DB_PORT"), Name: os.Getenv("FABRIC_COOLIFY_DB_NAME"),
+					Username: os.Getenv("FABRIC_COOLIFY_DB_USERNAME"), Password: os.Getenv("FABRIC_COOLIFY_DB_PASSWORD"),
+					CA: os.Getenv("FABRIC_COOLIFY_DB_CA"), Certificate: os.Getenv("FABRIC_COOLIFY_DB_CERT"), Key: os.Getenv("FABRIC_COOLIFY_DB_KEY"),
+					AppKeys: keys, Cipher: envOr("FABRIC_COOLIFY_APP_CIPHER", "AES-256-CBC"), ServerID: serverID,
+				})
+				if openErr != nil {
+					return openErr
+				}
+				defer store.Close()
+				service.Environments = environment.Resolver{Store: store}
+			}
 		}
 		server, err = rpc.New(*rpcListen, os.Getenv("FABRIC_RPC_TOKEN"), applier)
 		if err != nil {
