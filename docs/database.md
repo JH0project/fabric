@@ -65,6 +65,10 @@ and associations are preserved, but observed registration never adopts workloads
 
 `inventoryd` uses the same GORM database adapter and a single underlying pool,
 with conditional SQL for atomic ordering-aware upserts and serializable retries.
+Container observations and explicit removal tombstones are each written as one
+bounded batch, avoiding a network/consensus round trip per container. Each
+persistence attempt has a 30-second deadline; it never blocks local DNS or the
+Docker observer callback.
 It does not migrate at startup. Its database URL is `FABRIC_DATABASE_URL`;
 `FABRIC_INVENTORY_DATABASE_URL` remains a compatibility fallback.
 

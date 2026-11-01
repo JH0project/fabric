@@ -407,7 +407,7 @@ func TestSecureInventoryIntegration(t *testing.T) {
 	unknownNode := uuid.New()
 	deleteFirst := fixture(unknownNode, 3, false)
 	deleteFirst.NodeName = "node-two"
-	deleteFirst.Removed = []string{"not-seen-before"}
+	deleteFirst.Removed = []string{"not-seen-before", "another-unseen"}
 	if err := store.Apply(ctx, deleteFirst); err == nil {
 		t.Fatal("unregistered node observation accepted")
 	}
@@ -425,6 +425,29 @@ func TestSecureInventoryIntegration(t *testing.T) {
 	}
 	if state != "removed" {
 		t.Fatal("late first snapshot resurrected an unseen removal")
+	}
+	batchNode := uuid.New()
+	seedNode(batchNode, 6)
+	batchIDs := make([]string, 256)
+	for i := range batchIDs {
+		batchIDs[i] = fmt.Sprintf("batch-%03d", i)
+	}
+	batch := fixture(batchNode, 1, true, batchIDs...)
+	if err := store.Apply(ctx, batch); err != nil {
+		t.Fatal("large inventory batch", err)
+	}
+	if err := store.Apply(ctx, batch); err != nil {
+		t.Fatal("large batch replay", err)
+	}
+	var batchCount int
+	if err := admin.Pool.QueryRowContext(ctx, `SELECT count(*) FROM runtime_instances WHERE node_id=$1`, batchNode.String()).Scan(&batchCount); err != nil || batchCount != 256 {
+		t.Fatal("large inventory batch lost or duplicated rows", batchCount, err)
+	}
+	if err := store.Apply(ctx, fixture(batchNode, 2, true)); err != nil {
+		t.Fatal("empty inventory reconciliation", err)
+	}
+	if err := admin.Pool.QueryRowContext(ctx, `SELECT count(*) FROM runtime_instances WHERE node_id=$1 AND runtime_state='removed'`, batchNode.String()).Scan(&batchCount); err != nil || batchCount != 256 {
+		t.Fatal("large batch removal history", batchCount, err)
 	}
 
 	_, port, err := net.SplitHostPort(brokerAddress)

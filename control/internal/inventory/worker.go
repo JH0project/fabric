@@ -116,7 +116,7 @@ func (p *Persistence) Run(ctx context.Context) error {
 			if !ok {
 				break
 			}
-			c, cancel := context.WithTimeout(ctx, 5*time.Second)
+			c, cancel := context.WithTimeout(ctx, 30*time.Second)
 			err := p.Store.Apply(c, s)
 			cancel()
 			if err != nil {

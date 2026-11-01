@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/JH0project/fabric/control/internal/database"
@@ -82,17 +84,26 @@ func (s *Store) applyTransaction(tx *gorm.DB, v Snapshot) error {
 		complete = 0
 	}
 	ids := make([]string, 0, len(v.Instances))
+	rows := make([]string, 0, len(v.Instances))
+	args := make([]any, 0, len(v.Instances)*14)
 	for _, i := range v.Instances {
 		ids = append(ids, i.RuntimeID)
 		labels, _ := json.Marshal(i.Labels)
 		networks, _ := json.Marshal(i.NetworkAttachments)
+		p := len(args) + 1
+		rows = append(rows, fmt.Sprintf("($%d,$%d,'docker',$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,'observed',$%d,$%d,$%d,$%d)", p, p+1, p+2, p+3, p+4, p+5, p+6, p+7, p+8, p+9, p+10, p+11, p+12, p+13))
+		args = append(args, i.ID.String(), i.NodeID.String(), i.RuntimeID, i.Name, i.Image, i.ImageID, labels, networks, i.RuntimeState, i.HealthState, i.CreatedAt, i.ObservedAt, v.Epoch, v.Revision)
+	}
+	// One statement per snapshot avoids a network/consensus round trip for each
+	// container. Validation bounds the batch below the PostgreSQL parameter limit.
+	if len(rows) > 0 {
 		err := tx.Exec(`INSERT INTO runtime_instances
             (id,node_id,runtime_type,runtime_id,name,image,image_id,labels,network_attachments,runtime_state,health_state,origin,created_at,observed_at,epoch,revision)
-            VALUES($1,$2,'docker',$3,$4,$5,$6,$7,$8,$9,$10,'observed',$11,$12,$13,$14)
+            VALUES `+strings.Join(rows, ",")+`
             ON CONFLICT(node_id,runtime_type,runtime_id) DO UPDATE SET
             name=excluded.name,image=excluded.image,image_id=excluded.image_id,labels=excluded.labels,network_attachments=excluded.network_attachments,
             runtime_state=excluded.runtime_state,health_state=excluded.health_state,observed_at=excluded.observed_at,updated_at=now(),removed_at=NULL,epoch=excluded.epoch,revision=excluded.revision
-            WHERE runtime_instances.epoch<excluded.epoch OR (runtime_instances.epoch=excluded.epoch AND runtime_instances.revision<excluded.revision)`, i.ID.String(), i.NodeID.String(), i.RuntimeID, i.Name, i.Image, i.ImageID, labels, networks, i.RuntimeState, i.HealthState, i.CreatedAt, i.ObservedAt, v.Epoch, v.Revision).Error
+            WHERE runtime_instances.epoch<excluded.epoch OR (runtime_instances.epoch=excluded.epoch AND runtime_instances.revision<excluded.revision)`, args...).Error
 		if err != nil {
 			return err
 		}
@@ -108,20 +119,25 @@ func (s *Store) applyTransaction(tx *gorm.DB, v Snapshot) error {
 		complete = v.Revision
 	}
 	if len(v.Removed) > 0 {
+		rows = make([]string, 0, len(v.Removed))
+		args = make([]any, 0, len(v.Removed)*6)
 		for _, id := range v.Removed {
 			// A delete may precede the first received upsert. Persist its version
 			// even for an unknown runtime ID so a delayed full snapshot cannot
 			// insert it again. Existing identity/origin/associations stay intact.
-			err := tx.Exec(`INSERT INTO runtime_instances
+			p := len(args) + 1
+			rows = append(rows, fmt.Sprintf("($%d,$%d,'docker',$%d,'removed','observed',$%d,$%d,$%d,$%d)", p, p+1, p+2, p+3, p+3, p+4, p+5))
+			args = append(args, ObservedID(v.NodeID, "docker", id).String(), v.NodeID.String(), id, v.ObservedAt, v.Epoch, v.Revision)
+		}
+		err := tx.Exec(`INSERT INTO runtime_instances
                 (id,node_id,runtime_type,runtime_id,runtime_state,origin,observed_at,removed_at,epoch,revision)
-                VALUES($1,$2,'docker',$3,'removed','observed',$4,$4,$5,$6)
+                VALUES `+strings.Join(rows, ",")+`
                 ON CONFLICT(node_id,runtime_type,runtime_id) DO UPDATE SET
                 runtime_state='removed',removed_at=COALESCE(runtime_instances.removed_at,excluded.removed_at),
                 observed_at=excluded.observed_at,updated_at=now(),epoch=excluded.epoch,revision=excluded.revision
-                WHERE runtime_instances.epoch<excluded.epoch OR (runtime_instances.epoch=excluded.epoch AND runtime_instances.revision<excluded.revision)`, ObservedID(v.NodeID, "docker", id).String(), v.NodeID.String(), id, v.ObservedAt, v.Epoch, v.Revision).Error
-			if err != nil {
-				return err
-			}
+                WHERE runtime_instances.epoch<excluded.epoch OR (runtime_instances.epoch=excluded.epoch AND runtime_instances.revision<excluded.revision)`, args...).Error
+		if err != nil {
+			return err
 		}
 	}
 	if newer {

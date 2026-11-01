@@ -16,12 +16,15 @@ before feature enablement. Retain existing application schemas, broker accounts
 and traffic. No changefeed, JetStream stream/KV/durable consumer, desired-state
 controller, or existing-data rewrite is required.
 
-Freeze node UUIDs before creating subject ACLs. In the new NATS account, each node
-may publish only its own `snapshot.<uuid>` and the request subject, while peers
-subscribe to snapshot broadcasts/requests. The persistence identity publishes
-requests and subscribes to snapshots, never publishing instance state. Keep other
-accounts isolated, use separate secrets, and validate negative permissions on every
-server before enabling publishers. Existing route TLS/replication is unchanged.
+Freeze node UUIDs before enabling publishers. For the current milestone, agents
+and the persistence consumer share the NATS service user `fabric`, aligned with
+the PostgreSQL/CRDB username. The user explicitly chose shared authentication
+for now. Allow that identity to publish/subscribe only within the configured
+inventory namespace: `snapshot.*` and `request`. It can publish any node's snapshot;
+the shared identity does not enforce per-node publisher ownership. Keep other
+NATS accounts isolated and validate negative permissions on every server before
+enabling publishers. Existing route TLS/replication is unchanged. Matching service
+usernames do not require sharing the SQL and NATS passwords.
 
 ## Before release
 
@@ -71,6 +74,11 @@ Normal Coolify multi-destination fan-out is not a serial fleet rollout controlle
 
 - Freeze one stable node UUID per server and provision a durable per-node epoch
   mount. Back it up; never reset/copy epoch state or reuse a node UUID elsewhere.
+- For a multi-server Coolify app, its persistent-volume API may reject volumes
+  because they are not shared. A node-local epoch is intentionally not shared:
+  use a subdirectory of an existing writable, host-backed application-directory
+  bind mount, or provision a supported node-local directory bind on every host.
+  Verify the actual mount and epoch file after deployment and back up that state.
 - Configure scoped CA/auth material and per-node NATS seeds. Existing deployments
   may use TLS/password or certificate auth; keep full server-identity validation.
 - Resolve per-server `FABRIC_INVENTORY_ENABLED` to true only on the canary; all

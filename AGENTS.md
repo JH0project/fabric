@@ -69,6 +69,11 @@ inventory synchronization while preserving these boundaries.
   CRDB runs as `securecockroachdb.service`; verify current version/configuration
   before qualifying production integration.
 - Use explicit stable node UUIDs, separate node names, and persistent epoch state.
+- For the current milestone, use the shared service identity `fabric` for NATS
+  publishers and the consumer, aligned with the PostgreSQL/CRDB username. The
+  user explicitly prefers shared credentials for now; do not provision per-node
+  NATS identities unless asked. This is a temporary convention, not a permanent
+  security architecture. Matching usernames does not imply matching passwords.
 - Never put credentials, private keys, environment values, or arbitrary
   secret-bearing Docker labels in source, inventory, telemetry, or memory.
 - Keep private DN42 startup settings in deployment configuration rather than
