@@ -54,7 +54,7 @@ func TestDockerIntegration(t *testing.T) {
 		}
 	})
 	view := &runtime.View{}
-	a := app.App{Runtime: rt, View: view, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), RequestTimeout: 10 * time.Second, RefreshInterval: time.Hour}
+	a := app.Observer{Runtime: rt, View: view, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), RequestTimeout: 10 * time.Second, RefreshInterval: time.Hour}
 	runCtx, stop := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { done <- a.Run(runCtx) }()

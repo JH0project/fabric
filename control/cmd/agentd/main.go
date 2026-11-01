@@ -16,10 +16,12 @@ import (
 	"github.com/JH0project/fabric/control/internal/app"
 	"github.com/JH0project/fabric/control/internal/configuration"
 	"github.com/JH0project/fabric/control/internal/discovery"
+	"github.com/JH0project/fabric/control/internal/inventory"
 	"github.com/JH0project/fabric/control/internal/observability"
 	"github.com/JH0project/fabric/control/internal/rpc"
 	"github.com/JH0project/fabric/control/internal/runtime"
 	"github.com/JH0project/fabric/control/internal/runtime/docker"
+	"github.com/google/uuid"
 )
 
 func main() {
@@ -51,6 +53,7 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 	hostname, _ := os.Hostname()
 	dnsNode := flags.String("dns-node", envOr("FABRIC_NODE_ID", strings.ToLower(hostname)), "node DNS label; local is reserved")
 	dnsTTL := flags.Duration("dns-ttl", 5*time.Second, "DNS record and negative-cache TTL (whole seconds, 1s to 1m)")
+	inventoryEnabled := flags.Bool("inventory-enabled", os.Getenv("FABRIC_INVENTORY_ENABLED") == "true", "publish observed RuntimeInstances to Core NATS")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -69,6 +72,23 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 	}
 	if *logFormat != "text" && *logFormat != "json" {
 		return errors.New("log format must be text or json")
+	}
+	var nodeUUID uuid.UUID
+	if *inventoryEnabled {
+		explicitListen := false
+		flags.Visit(func(f *flag.Flag) {
+			if f.Name == "dns-listen" {
+				explicitListen = true
+			}
+		})
+		if !explicitListen && os.Getenv("FABRIC_DNS_LISTEN") == "" {
+			*dnsListen = "[::1]:8600"
+		}
+		var parseErr error
+		nodeUUID, parseErr = uuid.Parse(os.Getenv("FABRIC_NODE_UUID"))
+		if parseErr != nil || nodeUUID == uuid.Nil || !inventory.ValidName(*dnsNode) || os.Getenv("FABRIC_INVENTORY_STATE_DIR") == "" {
+			return errors.New("inventory requires FABRIC_NODE_UUID, a valid node name and persistent FABRIC_INVENTORY_STATE_DIR")
+		}
 	}
 	var dnsServer *discovery.DNS
 	if *dnsEnabled {
@@ -111,17 +131,18 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 	}
 	defer func() { err = errors.Join(err, rt.Close()) }()
 	rt.IncludeDiscovery = *dnsEnabled
-	a := app.App{
+	rt.IncludeInventory = *inventoryEnabled
+	observer := app.Observer{
 		Runtime: rt, View: &runtime.View{}, Logger: logger,
 		RequestTimeout: *timeout, RefreshInterval: *refresh,
 	}
-	var additional []func(context.Context) error
+	components := []app.Component{&observer}
 	if dnsServer != nil {
 		dnsServer.OnListening = func(address string) {
 			logger.InfoContext(ctx, "embedded DNS listening", "server.address", address, "fabric.dns.zone", dnsServer.Cache.Zone)
 		}
 		previousInvalid := ""
-		a.OnSnapshot = func(containers []runtime.Container) {
+		observer.OnSnapshot = func(containers []runtime.Container) {
 			endpoints, invalid := discovery.FromContainers(dnsServer.Cache.Node, containers)
 			if key := strings.Join(invalid, ","); key != previousInvalid {
 				if len(invalid) != 0 {
@@ -133,8 +154,29 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 				logger.Warn("DNS snapshot retained", "error", err)
 			}
 		}
-		additional = append(additional, dnsServer.Run)
+		components = append(components, dnsServer)
 		logger.InfoContext(ctx, "embedded DNS enabled", "server.address", *dnsListen, "fabric.dns.zone", dnsServer.Cache.Zone, "fabric.dns.scope", "local")
+	}
+	if *inventoryEnabled {
+		epoch, epochErr := inventory.AcquireEpoch(os.Getenv("FABRIC_INVENTORY_STATE_DIR"), nodeUUID.String())
+		if epochErr != nil {
+			return epochErr
+		}
+		defer epoch.Close()
+		bus, busErr := inventory.BusFromEnv()
+		if busErr != nil {
+			return busErr
+		}
+		defer bus.Close()
+		var cache *discovery.Cache
+		if dnsServer != nil {
+			cache = dnsServer.Cache
+			dnsServer.IPv6Only = true
+		}
+		worker := inventory.NewAgent(nodeUUID, *dnsNode, epoch.Number, bus, logger, cache)
+		observer.OnSnapshot = nil // The inventory projection owns the combined DNS index.
+		observer.OnObservation = worker.Observe
+		components = append(components, worker)
 	}
 	var server *rpc.Server
 	if *rpcEnabled {
@@ -160,9 +202,10 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 		if err != nil {
 			return err
 		}
+		components = append(components, server)
 	}
 	logger.InfoContext(ctx, "agentd starting")
-	if err := runServices(ctx, a.Run, server, additional...); err != nil {
+	if err := app.New(components...).Run(ctx); err != nil {
 		return fmt.Errorf("agentd: %w", err)
 	}
 	logger.InfoContext(ctx, "agentd stopped")
@@ -193,25 +236,4 @@ func envOr(key, fallback string) string {
 		return value
 	}
 	return fallback
-}
-func runServices(ctx context.Context, observe func(context.Context) error, server *rpc.Server, additional ...func(context.Context) error) error {
-	services := append([]func(context.Context) error{observe}, additional...)
-	if server != nil {
-		services = append(services, server.Run)
-	}
-	if len(services) == 1 {
-		return observe(ctx)
-	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	done := make(chan error, len(services))
-	for _, service := range services {
-		go func() { done <- service(ctx) }()
-	}
-	first := <-done
-	cancel()
-	for i := 1; i < len(services); i++ {
-		first = errors.Join(first, <-done)
-	}
-	return first
 }

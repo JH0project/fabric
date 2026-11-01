@@ -20,6 +20,9 @@ type Runtime struct {
 	// IncludeDiscovery enables health/network inspect during full snapshots
 	// for explicitly labelled running containers and network invalidations.
 	IncludeDiscovery bool
+	// IncludeInventory inspects all instances, including stopped and unlabelled
+	// ones. Any failed inspect fails the full list, preventing false removals.
+	IncludeInventory bool
 }
 
 // New honors DOCKER_HOST, DOCKER_TLS_VERIFY, DOCKER_CERT_PATH and
@@ -41,7 +44,7 @@ func (r *Runtime) List(ctx context.Context) ([]runtime.Container, error) {
 	}
 	containers := make([]runtime.Container, 0, len(result.Items))
 	for _, c := range result.Items {
-		if r.IncludeDiscovery && c.State == "running" && c.Labels["fabric.discovery.service"] != "" {
+		if r.IncludeInventory || r.IncludeDiscovery && c.State == "running" && c.Labels["fabric.discovery.service"] != "" {
 			full, err := r.Inspect(ctx, c.ID)
 			if errors.Is(err, runtime.ErrNotFound) {
 				continue
@@ -57,7 +60,7 @@ func (r *Runtime) List(ctx context.Context) ([]runtime.Container, error) {
 			name = strings.TrimPrefix(c.Names[0], "/")
 		}
 		containers = append(containers, runtime.Container{
-			ID: c.ID, Name: name, Image: c.Image, State: string(c.State), Labels: c.Labels,
+			ID: c.ID, Name: name, Image: c.Image, State: string(c.State), Labels: c.Labels, ObservedAt: time.Now().UTC(),
 		})
 	}
 	return containers, nil
@@ -79,6 +82,9 @@ func (r *Runtime) Inspect(ctx context.Context, id string) (runtime.Container, er
 		ID: c.ID, Name: strings.TrimPrefix(c.Name, "/"), Image: c.Config.Image,
 		State: string(c.State.Status), Labels: c.Config.Labels,
 	}
+	container.ObservedAt = time.Now().UTC()
+	container.ImageID = c.Image
+	container.CreatedAt, _ = time.Parse(time.RFC3339Nano, c.Created)
 	if c.State.Health != nil {
 		container.Health = string(c.State.Health.Status)
 	}
@@ -102,7 +108,7 @@ func (r *Runtime) Inspect(ctx context.Context, id string) (runtime.Container, er
 func (r *Runtime) Watch(ctx context.Context, since time.Time, emit func(runtime.Event) error) error {
 	watchCtx, cancel := context.WithCancel(ctx)
 	filters := client.Filters{}.Add("type", "container")
-	if r.IncludeDiscovery {
+	if r.IncludeDiscovery || r.IncludeInventory {
 		filters = filters.Add("type", "network")
 	}
 	stream := r.client.Events(watchCtx, client.EventsListOptions{

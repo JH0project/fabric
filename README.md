@@ -3,7 +3,7 @@
 Fabric is a Go + Rust + Node/TypeScript monorepo. Only the Go control plane,
 `agentd`, exists today; the future Rust L4 data plane (`routerd`) and Node services
 will follow the same language-neutral observability contract. No empty language
-scaffolds, external state systems, container deployment actions,
+scaffolds, container deployment actions,
 or desired-state reconciliation are implemented. An opt-in stateless configuration
 RPC writes caller-supplied files to explicitly allowed local roots. A separate
 [stateless Compose generation RPC](docs/compose-rpc.md) assembles a single-application
@@ -40,14 +40,26 @@ supervisor. Telemetry transport failures warn without stopping observation.
 See [embedded local DNS](docs/local-dns.md) for opt-in A/AAAA and SRV discovery
 inside `agentd`. It currently uses only local Docker observations.
 
+See [observed RuntimeInstances](docs/runtime-instances.md) for the opt-in
+Docker inventory → Core NATS → CRDB persistence path, stable instance identities,
+and IPv6 peer discovery. Enable it separately with `-inventory-enabled`; its
+consumer is `control/cmd/inventoryd`. It records actual state without taking
+container management authority.
+
+The [component framework](docs/framework.md) owns process lifecycle independently
+of feature logic. Follow [deployment gates](docs/deployment-runtime-instances.md)
+before releasing or enabling the new inventory path.
+
 ## Architecture
 
 ```text
 control/cmd/agentd                 construction, flags, signals, cleanup
-control/internal/app              Run(ctx), observations, OTel instrumentation
+control/cmd/inventoryd             opt-in observed-inventory persistence subscriber
+control/internal/app              component lifecycle; Docker Observer + OTel instrumentation
 control/internal/runtime          own Container/Event types, Runtime boundary, View
 control/internal/runtime/docker   Docker SDK adapter and type translation
 control/internal/discovery        local discovery index and embedded UDP/TCP DNS
+control/internal/inventory        RuntimeInstance identity, snapshots, NATS and CRDB
 control/internal/observability    native OTel providers, logging bridge, bootstrap
 docs/standards/observability.md    shared Go/Rust/Node signal contract
 

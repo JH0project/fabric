@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 type snapshot struct{ names map[string][]Endpoint }
@@ -69,6 +70,12 @@ func (c *Cache) lookup(name string) (endpoints []Endpoint, ready, exists bool) {
 	if s == nil {
 		return nil, false, false
 	}
-	endpoints, exists = s.names[name]
+	stored, found := s.names[name]
+	exists = found
+	for _, e := range stored {
+		if e.ValidUntil.IsZero() || e.ValidUntil.After(time.Now()) {
+			endpoints = append(endpoints, e)
+		}
+	}
 	return endpoints, true, exists
 }

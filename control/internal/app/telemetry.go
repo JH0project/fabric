@@ -20,7 +20,7 @@ type instruments struct {
 	inspectDuration  metric.Float64Histogram
 }
 
-func (a *App) instruments(meter metric.Meter) (metric.Registration, error) {
+func (a *Observer) instruments(meter metric.Meter) (metric.Registration, error) {
 	var err error
 	m := &instruments{}
 	if m.events, err = meter.Int64Counter("fabric.runtime.events", metric.WithUnit("{event}")); err != nil {

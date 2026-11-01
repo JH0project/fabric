@@ -131,6 +131,8 @@ func (s *Server) Handler() http.Handler {
 		respond(w, status, result)
 	})
 }
+func (s *Server) Name() string { return "rpc" }
+
 func (s *Server) Run(ctx context.Context) error {
 	listener, err := net.Listen("tcp", s.Address)
 	if err != nil {

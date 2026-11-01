@@ -10,15 +10,26 @@ import (
 var ErrNotFound = errors.New("container not found")
 
 type Container struct {
-	ID     string
-	Name   string
-	Image  string
-	State  string
-	Labels map[string]string
+	ID         string
+	Name       string
+	Image      string
+	ImageID    string
+	CreatedAt  time.Time
+	ObservedAt time.Time
+	State      string
+	Labels     map[string]string
 	// Health is empty when no Docker healthcheck exists. Networks contains
 	// literal IPv4/IPv6 addresses by Docker network name, never host bindings.
 	Health   string
 	Networks map[string][]string
+}
+
+// Observation is complete only after a successful full runtime list. Removed
+// contains individual runtime IDs whose inspect returned ErrNotFound.
+type Observation struct {
+	Containers []Container
+	Complete   bool
+	Removed    []string
 }
 
 // Event is an invalidation hint, not authoritative container state.

@@ -15,12 +15,16 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath -buildvcs=false -ldflags="-s -w -X main.version=${VERSION}" \
     -o /out/agentd ./control/cmd/agentd && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -buildvcs=false -ldflags="-s -w -X main.version=${VERSION}" \
+    -o /out/inventoryd ./control/cmd/inventoryd && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -buildvcs=false -ldflags="-s -w" \
     -o /out/fabric-db ./control/cmd/fabric-db
 
 FROM alpine:3.24
 RUN apk add --no-cache ca-certificates iproute2
 COPY --from=build /out/agentd /agentd
+COPY --from=build /out/inventoryd /inventoryd
 COPY --from=build /out/fabric-db /fabric-db
 USER 65532:65532
 STOPSIGNAL SIGTERM

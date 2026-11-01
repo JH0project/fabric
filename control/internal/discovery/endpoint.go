@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/JH0project/fabric/control/internal/runtime"
 )
@@ -23,6 +24,7 @@ type Endpoint struct {
 	Addresses          []string
 	Port               uint16
 	PortName, Protocol string
+	ValidUntil         time.Time
 }
 
 func (e Endpoint) validate() error {

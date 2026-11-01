@@ -193,3 +193,22 @@ func TestNetworkEventsInvalidateContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestInventoryInspectsUnlabelledStoppedContainers(t *testing.T) {
+	r := testRuntime(t, func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if req.URL.Path == "/v1.51/containers/json" {
+			fmt.Fprint(w, `[{"Id":"a","State":"exited"}]`)
+			return
+		}
+		fmt.Fprint(w, `{"Id":"a","Name":"/unmanaged","Image":"sha256:physical-image","Created":"2026-01-01T00:00:00Z","Config":{"Image":"example:latest"},"State":{"Status":"exited"},"NetworkSettings":{"Networks":{"mesh":{"GlobalIPv6Address":"fd00::42"}}}}`)
+	})
+	r.IncludeInventory = true
+	containers, err := r.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(containers) != 1 || containers[0].Name != "unmanaged" || containers[0].ImageID != "sha256:physical-image" || containers[0].CreatedAt.IsZero() || containers[0].State != "exited" || len(containers[0].Networks["mesh"]) != 1 {
+		t.Fatalf("incomplete inventory metadata: %+v", containers)
+	}
+}

@@ -11,13 +11,16 @@ import (
 )
 
 type DNS struct {
-	Cache   *Cache
-	TTL     uint32
-	Address string
+	Cache    *Cache
+	TTL      uint32
+	Address  string
+	IPv6Only bool
 	// OnListening is called once after both listeners have started.
 	OnListening func(address string)
 	telemetry   *dnsTelemetry
 }
+
+func (s *DNS) Name() string { return "dns" }
 
 func (s *DNS) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 	r := new(dns.Msg)
@@ -50,6 +53,14 @@ func (s *DNS) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 			} else {
 				seen := map[string]bool{}
 				ttl := s.TTL
+				for _, e := range endpoints {
+					if !e.ValidUntil.IsZero() {
+						remaining := uint32(max(0, time.Until(e.ValidUntil)/time.Second))
+						if remaining < ttl {
+							ttl = remaining
+						}
+					}
+				}
 				for _, e := range endpoints {
 					if q.Qtype == dns.TypeSRV && strings.HasPrefix(name, "_") {
 						rr := &dns.SRV{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeSRV, Class: dns.ClassINET, Ttl: ttl}, Priority: 10, Weight: 1, Port: e.Port, Target: e.target(s.Cache.Zone)}
@@ -134,12 +145,16 @@ func (s *DNS) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	tcp, err := net.Listen("tcp", s.Address)
+	tcpNetwork, udpNetwork := "tcp", "udp"
+	if s.IPv6Only {
+		tcpNetwork, udpNetwork = "tcp6", "udp6"
+	}
+	tcp, err := net.Listen(tcpNetwork, s.Address)
 	if err != nil {
 		return err
 	}
 	defer tcp.Close()
-	udp, err := net.ListenPacket("udp", tcp.Addr().String())
+	udp, err := net.ListenPacket(udpNetwork, tcp.Addr().String())
 	if err != nil {
 		return err
 	}

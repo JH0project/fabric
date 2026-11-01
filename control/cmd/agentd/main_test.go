@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"github.com/JH0project/fabric/control/internal/app"
 	"github.com/JH0project/fabric/control/internal/configuration"
 	"github.com/JH0project/fabric/control/internal/rpc"
 	"io"
@@ -36,6 +37,11 @@ func TestArgumentsAndCancelledBootstrap(t *testing.T) {
 
 type testApplier struct{}
 
+type testComponent struct{ run func(context.Context) error }
+
+func (testComponent) Name() string                    { return "test-observer" }
+func (c testComponent) Run(ctx context.Context) error { return c.run(ctx) }
+
 func (testApplier) Apply(context.Context, configuration.Request) configuration.Result {
 	return configuration.Result{Applied: true}
 }
@@ -52,7 +58,7 @@ func TestCombinedServicesJoinOnFailure(t *testing.T) {
 	stopped := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- runServices(context.Background(), func(ctx context.Context) error { <-ctx.Done(); close(stopped); return nil }, server)
+		done <- app.New(testComponent{func(ctx context.Context) error { <-ctx.Done(); close(stopped); return nil }}, server).Run(context.Background())
 	}()
 	select {
 	case err := <-done:
@@ -69,7 +75,7 @@ func TestCombinedServicesJoinOnFailure(t *testing.T) {
 	}
 	boom := errors.New("observer failed")
 	server.Address = "127.0.0.1:0"
-	if err := runServices(context.Background(), func(context.Context) error { return boom }, server); !errors.Is(err, boom) {
+	if err := app.New(testComponent{func(context.Context) error { return boom }}, server).Run(context.Background()); !errors.Is(err, boom) {
 		t.Fatal(err)
 	}
 }

@@ -26,8 +26,8 @@ func (f fakeRuntime) Watch(ctx context.Context, since time.Time, emit func(runti
 	return f.watch(ctx, since, emit)
 }
 
-func testApp(rt runtime.Runtime) *App {
-	return &App{Runtime: rt, View: &runtime.View{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), RequestTimeout: time.Second, RefreshInterval: time.Hour}
+func testApp(rt runtime.Runtime) *Observer {
+	return &Observer{Runtime: rt, View: &runtime.View{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), RequestTimeout: time.Second, RefreshInterval: time.Hour}
 }
 
 func await(t *testing.T, check func() bool) {
@@ -201,5 +201,54 @@ func TestRequestDeadlineAndCancelledBootstrap(t *testing.T) {
 	cancel()
 	if err := a.Run(ctx); err != nil {
 		t.Fatalf("cancelled bootstrap: %v", err)
+	}
+}
+
+func TestObservationCompletenessAndExplicitRemoval(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	observations := make(chan runtime.Observation, 2)
+	a := testApp(fakeRuntime{
+		list: func(context.Context) ([]runtime.Container, error) {
+			return []runtime.Container{{ID: "a"}, {ID: "b"}}, nil
+		},
+		inspect: func(context.Context, string) (runtime.Container, error) {
+			return runtime.Container{}, runtime.ErrNotFound
+		},
+		watch: func(ctx context.Context, _ time.Time, emit func(runtime.Event) error) error {
+			if err := emit(runtime.Event{ContainerID: "b"}); err != nil {
+				return err
+			}
+			<-ctx.Done()
+			return nil
+		},
+	})
+	a.OnObservation = func(o runtime.Observation) { observations <- o }
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Error(err)
+			}
+		case <-time.After(time.Second):
+			t.Error("observer did not stop")
+		}
+	})
+	var initial, partial runtime.Observation
+	select {
+	case initial = <-observations:
+	case <-time.After(time.Second):
+		t.Fatal("missing initial inventory")
+	}
+	select {
+	case partial = <-observations:
+	case <-time.After(time.Second):
+		t.Fatal("missing removal observation")
+	}
+	if !initial.Complete || len(initial.Containers) != 2 || partial.Complete || len(partial.Containers) != 1 || len(partial.Removed) != 1 || partial.Removed[0] != "b" {
+		t.Fatal("observation authority was lost")
 	}
 }
