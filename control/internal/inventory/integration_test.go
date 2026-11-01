@@ -7,8 +7,8 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	_ "embed"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,14 +18,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/JH0project/fabric/control/internal/app"
+	"github.com/JH0project/fabric/control/internal/database"
 	"github.com/JH0project/fabric/control/internal/discovery"
 	"github.com/JH0project/fabric/control/internal/runtime"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/miekg/dns"
 )
 
@@ -35,21 +38,8 @@ type labProcess struct {
 	log  string
 }
 
-// Deferred runtime schema is a lab fixture, never a production migration.
-//
-//go:embed testdata/runtime-schema.sql
-var labSchema string
-
 func migrateInventoryLab(ctx context.Context, s *Store) error {
-	tx, err := s.Pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, labSchema); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return (&database.Store{DB: s.DB}).Migrate(ctx)
 }
 
 func launch(t *testing.T, binary string, args ...string) *labProcess {
@@ -179,24 +169,23 @@ func TestSecureInventoryIntegration(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	admin, err := OpenStore(ctx, dsn("root"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer admin.Close()
+	var admin *Store
+	var err error
 	eventually(t, "secure CRDB did not become ready", func() bool {
 		c, stop := context.WithTimeout(ctx, time.Second)
 		defer stop()
-		return admin.Pool.Ping(c) == nil
+		admin, err = OpenStore(c, dsn("root"))
+		return err == nil
 	})
-	testNodeRegistry(t, ctx, dsn("root"))
+	defer admin.Close()
 	if err := migrateInventoryLab(ctx, admin); err != nil {
 		t.Fatal(err)
 	}
 	if err := migrateInventoryLab(ctx, admin); err != nil {
 		t.Fatal("non-idempotent migration", err)
 	}
-	if _, err := admin.Pool.Exec(ctx, `CREATE USER fabric_inventory; GRANT SELECT,INSERT,UPDATE ON TABLE fabric_nodes,runtime_instances TO fabric_inventory`); err != nil {
+	testNodeRegistry(t, ctx, dsn("root"))
+	if _, err := admin.Pool.ExecContext(ctx, `REVOKE ALL ON SCHEMA public FROM public; CREATE USER fabric_inventory; GRANT CONNECT ON DATABASE defaultdb TO fabric_inventory; GRANT USAGE ON SCHEMA public TO fabric_inventory; GRANT SELECT,INSERT,UPDATE ON TABLE node_observations,runtime_instances TO fabric_inventory; GRANT SELECT ON TABLE nodes,runtime_instance_observations TO fabric_inventory`); err != nil {
 		t.Fatal(err)
 	}
 	wrongCA := certificates(t)
@@ -208,25 +197,20 @@ func TestSecureInventoryIntegration(t *testing.T) {
 	wrongQuery.Set("sslrootcert", filepath.Join(wrongCA, "ca.crt"))
 	wrongURL.RawQuery = wrongQuery.Encode()
 	badStore, err := OpenStore(ctx, wrongURL.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	tlsCtx, tlsCancel := context.WithTimeout(ctx, 2*time.Second)
-	if err := badStore.Pool.Ping(tlsCtx); err == nil {
+	if err == nil {
+		badStore.Close()
 		t.Fatal("untrusted database CA accepted")
 	}
-	tlsCancel()
-	badStore.Close()
 	store, err := OpenStore(ctx, dsn("fabric_inventory"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 	labPassword := uuid.NewString()
-	if _, err := admin.Pool.Exec(ctx, `CREATE USER fabric_password WITH PASSWORD $1`, labPassword); err != nil {
+	if _, err := admin.Pool.ExecContext(ctx, `CREATE USER fabric_password WITH PASSWORD $1`, labPassword); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := admin.Pool.Exec(ctx, `GRANT SELECT,INSERT,UPDATE ON TABLE fabric_nodes,runtime_instances TO fabric_password`); err != nil {
+	if _, err := admin.Pool.ExecContext(ctx, `GRANT CONNECT ON DATABASE defaultdb TO fabric_password; GRANT USAGE ON SCHEMA public TO fabric_password; GRANT SELECT,INSERT,UPDATE ON TABLE node_observations,runtime_instances TO fabric_password`); err != nil {
 		t.Fatal(err)
 	}
 	passwordURL, err := url.Parse(dsn("fabric_inventory"))
@@ -242,15 +226,22 @@ func TestSecureInventoryIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := passwordStore.Pool.Ping(ctx); err != nil {
+	if err := passwordStore.Pool.PingContext(ctx); err != nil {
 		t.Fatal("secure password database login failed")
 	}
 	passwordStore.Close()
 	node := uuid.New()
+	seedNode := func(id uuid.UUID, sequence int64) {
+		t.Helper()
+		if err := (&database.Store{DB: admin.DB}).ImportNodes(ctx, []database.Node{{UUID: id, ID: sequence, Region: "lab", Zone: "lab-1"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedNode(node, 1)
 	count := func(where string) int {
 		t.Helper()
 		var n int
-		if err := admin.Pool.QueryRow(ctx, `SELECT count(*) FROM runtime_instances WHERE node_id=$1 AND `+where, node.String()).Scan(&n); err != nil {
+		if err := admin.Pool.QueryRowContext(ctx, `SELECT count(*) FROM runtime_instances WHERE node_id=$1 AND `+where, node.String()).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		return n
@@ -264,6 +255,15 @@ func TestSecureInventoryIntegration(t *testing.T) {
 	}
 	if count("true") != 2 {
 		t.Fatal("duplicate identities")
+	}
+	readback, err := (&database.Store{DB: store.DB}).RuntimeInstances(ctx, node)
+	if err != nil || len(readback) != 2 {
+		t.Fatal("GORM runtime observation read", readback, err)
+	}
+	for _, record := range readback {
+		if record.RuntimeID == nil || record.ID != ObservedID(node, "docker", *record.RuntimeID) || record.ObservationStale || record.Labels["fabric.discovery.service"] != "api" || len(record.NetworkAttachments["mesh"]) != 2 {
+			t.Fatal("runtime identity, JSON metadata or freshness did not round-trip", record)
+		}
 	}
 	stop := fixture(node, 2, false, "a", "b")
 	stop.Instances[0].RuntimeState = "exited"
@@ -308,11 +308,11 @@ func TestSecureInventoryIntegration(t *testing.T) {
 		t.Fatal("stale snapshot resurrected removal")
 	}
 	managedID, serviceID := uuid.New(), uuid.New()
-	if _, err := admin.Pool.Exec(ctx, `INSERT INTO runtime_instances(id,node_id,service_id,runtime_type,runtime_id,origin,observed_at,epoch,revision) VALUES($1,$2,$3,'docker','managed-runtime','fabric_managed',now(),0,0)`, managedID.String(), node.String(), serviceID.String()); err != nil {
+	if _, err := admin.Pool.ExecContext(ctx, `INSERT INTO runtime_instances(id,node_id,service_id,runtime_type,runtime_id,origin,observed_at,epoch,revision) VALUES($1,$2,$3,'docker','managed-runtime','fabric_managed',now(),0,0)`, managedID.String(), node.String(), serviceID.String()); err != nil {
 		t.Fatal(err)
 	}
 	futureID := uuid.New()
-	if _, err := admin.Pool.Exec(ctx, `INSERT INTO runtime_instances(id,node_id,runtime_type,origin,observed_at,epoch,revision) VALUES($1,$2,'docker','fabric_managed',now(),0,0)`, futureID.String(), node.String()); err != nil {
+	if _, err := admin.Pool.ExecContext(ctx, `INSERT INTO runtime_instances(id,node_id,runtime_type,origin,observed_at,epoch,revision) VALUES($1,$2,'docker','fabric_managed',now(),0,0)`, futureID.String(), node.String()); err != nil {
 		t.Fatal(err)
 	}
 	managedObservation := fixture(node, 8, true, "a", "c", "managed-runtime")
@@ -320,7 +320,7 @@ func TestSecureInventoryIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	var actualID, actualService, origin string
-	if err := admin.Pool.QueryRow(ctx, `SELECT id::STRING,service_id::STRING,origin FROM runtime_instances WHERE node_id=$1 AND runtime_id='managed-runtime'`, node.String()).Scan(&actualID, &actualService, &origin); err != nil {
+	if err := admin.Pool.QueryRowContext(ctx, `SELECT id::STRING,service_id::STRING,origin FROM runtime_instances WHERE node_id=$1 AND runtime_id='managed-runtime'`, node.String()).Scan(&actualID, &actualService, &origin); err != nil {
 		t.Fatal(err)
 	}
 	if actualID != managedID.String() || actualService != serviceID.String() || origin != "fabric_managed" {
@@ -329,21 +329,89 @@ func TestSecureInventoryIntegration(t *testing.T) {
 	if count("runtime_id IS NULL AND removed_at IS NULL") != 1 {
 		t.Fatal("future unbound allocation falsely removed")
 	}
-	if _, err := admin.Pool.Exec(ctx, `UPDATE fabric_nodes SET observed_at=now()-INTERVAL '2 minutes' WHERE id=$1`, node.String()); err != nil {
+	// Freshness is based on database receipt time, not a publisher's clock.
+	if _, err := admin.Pool.ExecContext(ctx, `UPDATE node_observations SET observed_at=now()+INTERVAL '1 day',updated_at=now()-INTERVAL '2 minutes' WHERE node_id=$1`, node.String()); err != nil {
 		t.Fatal(err)
 	}
 	var stale bool
 	var state string
-	if err := admin.Pool.QueryRow(ctx, `SELECT observation_stale,runtime_state FROM runtime_instance_observations WHERE node_id=$1 AND runtime_id='a'`, node.String()).Scan(&stale, &state); err != nil {
+	if err := admin.Pool.QueryRowContext(ctx, `SELECT observation_stale,runtime_state FROM runtime_instance_observations WHERE node_id=$1 AND runtime_id='a'`, node.String()).Scan(&stale, &state); err != nil {
 		t.Fatal(err)
 	}
 	if !stale || state != "running" {
 		t.Fatal("node outage fabricated stopped containers")
 	}
+	staleReadback, err := (&database.Store{DB: store.DB}).RuntimeInstances(ctx, node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range staleReadback {
+		if !record.ObservationStale {
+			t.Fatal("GORM read lost stale-node status")
+		}
+	}
+	for _, query := range []string{"CREATE TABLE forbidden_runtime(id INT)", "DELETE FROM runtime_instances WHERE false", "INSERT INTO nodes(uuid,id,region,zone) VALUES(gen_random_uuid(),65535,'forbidden','forbidden')", "SELECT * FROM schema_migrations"} {
+		_, err := store.Pool.ExecContext(ctx, query)
+		var pg *pgconn.PgError
+		if !errors.As(err, &pg) || pg.Code != "42501" {
+			t.Fatal("consumer privilege escaped", query, err)
+		}
+	}
+	// An agent restart starts a new epoch. Old rows become stale until a complete
+	// inventory arrives; an old-epoch message with a large revision is still old.
+	nextEpoch := fixture(node, 1, false, "a")
+	nextEpoch.Epoch = 2
+	if err := store.Apply(ctx, nextEpoch); err != nil {
+		t.Fatal(err)
+	}
+	oldEpoch := fixture(node, 100, true, "a", "must-not-appear")
+	if err := store.Apply(ctx, oldEpoch); err != nil {
+		t.Fatal(err)
+	}
+	if count("runtime_id='must-not-appear'") != 0 {
+		t.Fatal("old epoch overrode restarted publisher")
+	}
+	if err := admin.Pool.QueryRowContext(ctx, `SELECT observation_stale,runtime_state FROM runtime_instance_observations WHERE node_id=$1 AND runtime_id='c'`, node.String()).Scan(&stale, &state); err != nil || !stale || state != "running" {
+		t.Fatal("incomplete new epoch fabricated removal", stale, state, err)
+	}
+	fullEpoch := fixture(node, 2, true, "a")
+	fullEpoch.Epoch = 2
+	if err := store.Apply(ctx, fullEpoch); err != nil {
+		t.Fatal(err)
+	}
+	if count("runtime_id='c' AND runtime_state='removed'") != 1 || count("runtime_id IS NULL AND removed_at IS NULL") != 1 {
+		t.Fatal("new epoch failed reconciliation or removed an unbound allocation")
+	}
+	// Duplicate consumers may race on the first snapshot for a node. Their
+	// transactions must converge on one row and one publisher watermark.
+	concurrentNode := uuid.New()
+	seedNode(concurrentNode, 5)
+	concurrentSnapshot := fixture(concurrentNode, 1, true, "concurrent-runtime")
+	var writers sync.WaitGroup
+	writeErrors := make(chan error, 4)
+	for range 4 {
+		writers.Add(1)
+		go func() { defer writers.Done(); writeErrors <- store.Apply(ctx, concurrentSnapshot) }()
+	}
+	writers.Wait()
+	close(writeErrors)
+	for err := range writeErrors {
+		if err != nil {
+			t.Fatal("concurrent snapshot persistence", err)
+		}
+	}
+	var concurrentCount int
+	if err := admin.Pool.QueryRowContext(ctx, `SELECT count(*) FROM runtime_instances WHERE node_id=$1`, concurrentNode.String()).Scan(&concurrentCount); err != nil || concurrentCount != 1 {
+		t.Fatal("concurrent consumers duplicated runtime identity", concurrentCount, err)
+	}
 	unknownNode := uuid.New()
 	deleteFirst := fixture(unknownNode, 3, false)
 	deleteFirst.NodeName = "node-two"
 	deleteFirst.Removed = []string{"not-seen-before"}
+	if err := store.Apply(ctx, deleteFirst); err == nil {
+		t.Fatal("unregistered node observation accepted")
+	}
+	seedNode(unknownNode, 2)
 	if err := store.Apply(ctx, deleteFirst); err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +420,7 @@ func TestSecureInventoryIntegration(t *testing.T) {
 	if err := store.Apply(ctx, lateFirst); err != nil {
 		t.Fatal(err)
 	}
-	if err := admin.Pool.QueryRow(ctx, `SELECT runtime_state FROM runtime_instances WHERE node_id=$1 AND runtime_id='not-seen-before'`, unknownNode.String()).Scan(&state); err != nil {
+	if err := admin.Pool.QueryRowContext(ctx, `SELECT runtime_state FROM runtime_instances WHERE node_id=$1 AND runtime_id='not-seen-before'`, unknownNode.String()).Scan(&state); err != nil {
 		t.Fatal(err)
 	}
 	if state != "removed" {
@@ -402,6 +470,8 @@ func TestSecureInventoryIntegration(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sourceNode := uuid.New()
 	receiverNode := uuid.New()
+	seedNode(sourceNode, 3)
+	seedNode(receiverNode, 4)
 	cache, err := discovery.NewCache("fabric.internal", "receiver")
 	if err != nil {
 		t.Fatal(err)
@@ -477,7 +547,7 @@ func TestSecureInventoryIntegration(t *testing.T) {
 		var state string
 		c, stop := context.WithTimeout(ctx, time.Second)
 		defer stop()
-		err := store.Pool.QueryRow(c, `SELECT runtime_state FROM runtime_instances WHERE node_id=$1 AND runtime_id=$2`, sourceNode.String(), id).Scan(&state)
+		err := store.Pool.QueryRowContext(c, `SELECT runtime_state FROM runtime_instances WHERE node_id=$1 AND runtime_id=$2`, sourceNode.String(), id).Scan(&state)
 		return err == nil && state == expected
 	}
 	eventually(t, "unlabelled inventory not persisted", func() bool { return persisted("unlabelled", "running") })
@@ -498,7 +568,7 @@ func TestSecureInventoryIntegration(t *testing.T) {
 		var image string
 		c, stop := context.WithTimeout(ctx, time.Second)
 		defer stop()
-		return store.Pool.QueryRow(c, `SELECT image FROM runtime_instances WHERE node_id=$1 AND runtime_id='live-a'`, sourceNode.String()).Scan(&image) == nil && image == "example:while-db-down"
+		return store.Pool.QueryRowContext(c, `SELECT image FROM runtime_instances WHERE node_id=$1 AND runtime_id='live-a'`, sourceNode.String()).Scan(&image) == nil && image == "example:while-db-down"
 	})
 
 	// Lose a removal while the broker is down, then repair with a complete list.

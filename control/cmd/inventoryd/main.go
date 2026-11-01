@@ -58,7 +58,11 @@ func run(ctx context.Context, args []string) error {
 		defer cancel()
 		_ = obs.Shutdown(c)
 	}()
-	store, err := inventory.OpenStore(ctx, os.Getenv("FABRIC_INVENTORY_DATABASE_URL"))
+	dsn := os.Getenv("FABRIC_DATABASE_URL")
+	if dsn == "" {
+		dsn = os.Getenv("FABRIC_INVENTORY_DATABASE_URL")
+	}
+	store, err := inventory.OpenStore(ctx, dsn)
 	if err != nil {
 		return err
 	}

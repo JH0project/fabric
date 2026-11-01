@@ -1,9 +1,8 @@
 # Observed RuntimeInstances
 
-Production SQL currently stops at the four-column node registry described in
-[database.md](database.md). RuntimeInstance SQL below describes the deferred
-integration fixture; do not enable the persistence consumer against the nodes-only
-database. No runtime tables or observation view are part of the first migration.
+The versioned RuntimeInstance schema follows the four-column node registry in
+[database.md](database.md). Apply `202611010001_runtime_instances` explicitly
+before enabling the consumer; it is not applied by agent or consumer startup.
 
 This initial registry is observation-only. Docker owns the actual containers;
 Fabric assigns resource identities and records what agentd observes. No container
@@ -33,8 +32,9 @@ process startup, determine identity. Stops, restarts of the same container ID,
 agent restarts, and repeated messages retain the UUID. A recreated container ID
 produces a different UUID even if its name is unchanged.
 
-The deferred lab-only `fabric_nodes` supplies the initial Node UUID reference and tracks the accepted
+`nodes.uuid` supplies the registered Node reference. `node_observations` tracks
 publisher epoch, newest revision, newest complete revision, and observation time.
+An observation cannot register an unknown node or mutate the four-field registry.
 `runtime_instances` contains:
 
 - Fabric UUID, node UUID, nullable service/deployment/rollout UUIDs.
@@ -177,13 +177,14 @@ securely with proper percent-encoding; do not paste secrets into shell history.
 Provision a separate Fabric database and least-privilege SQL identity on the
 existing secure CockroachDB cluster. Run migrations explicitly with appropriate
 operator credentials, then run the consumer using a scoped identity with
-SELECT/INSERT/UPDATE on `fabric_nodes` and `runtime_instances` (plus normal
+SELECT/INSERT/UPDATE on `node_observations` and `runtime_instances`, SELECT on
+`nodes` and `runtime_instance_observations` (plus normal
 database/schema access). No runtime container authority or dn42 schema access is
 needed. A compatible Node name/UUID must not be reused for an unrelated server.
 
 ```sh
-export FABRIC_INVENTORY_DATABASE_URL='postgresql://fabric_inventory@[<private-ipv6>]:26257/fabric?sslmode=verify-full&sslrootcert=/certs/crdb/ca.crt&sslcert=/certs/crdb/client.fabric_inventory.crt&sslkey=/certs/crdb/client.fabric_inventory.key'
-go run ./control/cmd/fabric-db -migrate   # nodes-only operator setup; runtime SQL deferred
+export FABRIC_DATABASE_URL='postgresql://fabric_inventory@[<private-ipv6>]:26257/fabric?sslmode=verify-full&sslrootcert=/certs/crdb/ca.crt&sslcert=/certs/crdb/client.fabric_inventory.crt&sslkey=/certs/crdb/client.fabric_inventory.key'
+go run ./control/cmd/fabric-db -migrate   # explicit operator identity
 go run ./control/cmd/inventoryd            # normal scoped consumer
 ```
 

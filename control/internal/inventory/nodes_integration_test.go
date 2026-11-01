@@ -2,15 +2,17 @@ package inventory
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"testing"
 
 	"github.com/JH0project/fabric/control/internal/database"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Uses the existing opt-in secure CRDB fixture, but a separate database. This
-// keeps the nodes-first schema independent of the deferred runtime projection.
+// verifies an upgrade from the already deployed nodes-only schema.
 func testNodeRegistry(t *testing.T, ctx context.Context, rootDSN string) {
 	t.Helper()
 	admin, err := database.Open(ctx, rootDSN)
@@ -28,10 +30,10 @@ func testNodeRegistry(t *testing.T, ctx context.Context, rootDSN string) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if err := s.Migrate(ctx); err != nil {
+	if err := s.MigrateTo(ctx, database.NodesMigration); err != nil {
 		t.Fatal("GORM nodes migration", err)
 	}
-	if err := s.Migrate(ctx); err != nil {
+	if err := s.MigrateTo(ctx, database.NodesMigration); err != nil {
 		t.Fatal("migration replay", err)
 	}
 	var columns int64
@@ -59,6 +61,22 @@ func testNodeRegistry(t *testing.T, ctx context.Context, rootDSN string) {
 	nodes, err := s.Nodes(ctx)
 	if err != nil || len(nodes) != 1 || nodes[0] != n {
 		t.Fatal("import was not atomic", nodes, err)
+	}
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatal("upgrade existing node registry", err)
+	}
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatal("runtime migration replay", err)
+	}
+	upgraded, err := s.Nodes(ctx)
+	if err != nil || len(upgraded) != 1 || upgraded[0] != n {
+		t.Fatal("runtime migration changed node identity", upgraded, err)
+	}
+	if err := s.DB.Table("schema_migrations").Count(&versions).Error; err != nil || versions != 2 {
+		t.Fatal("runtime migration history", versions, err)
+	}
+	if err := s.DB.Raw("SELECT count(*) FROM information_schema.columns WHERE table_name='nodes' AND table_schema='public'").Scan(&columns).Error; err != nil || columns != 4 {
+		t.Fatal("runtime migration expanded nodes model", columns, err)
 	}
 	for _, sql := range []string{
 		"REVOKE ALL ON DATABASE fabric_nodes_lab FROM public",
@@ -88,9 +106,11 @@ func testNodeRegistry(t *testing.T, ctx context.Context, rootDSN string) {
 	if err := app.ImportNodes(ctx, []database.Node{n, newNode}); err != nil {
 		t.Fatal("runtime insert/update denied", err)
 	}
-	for _, sql := range []string{"CREATE TABLE forbidden(id INT)", "DELETE FROM nodes WHERE id=2", "SELECT * FROM schema_migrations", "SELECT * FROM defaultdb.public.fabric_nodes"} {
-		if err := app.DB.Exec(sql).Error; err == nil {
-			t.Fatal("runtime privilege escaped", sql)
+	for _, sql := range []string{"CREATE TABLE forbidden(id INT)", "DELETE FROM nodes WHERE id=2", "SELECT * FROM schema_migrations", "SELECT * FROM defaultdb.public.nodes"} {
+		err := app.DB.Exec(sql).Error
+		var pg *pgconn.PgError
+		if !errors.As(err, &pg) || pg.Code != "42501" {
+			t.Fatal("runtime privilege check did not deny access", sql, err)
 		}
 	}
 	if err := s.DB.Exec("INSERT INTO schema_migrations(id) VALUES ('unknown_future_migration')").Error; err != nil {

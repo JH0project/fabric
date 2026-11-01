@@ -1,4 +1,4 @@
-# Fabric database and node registry
+# Fabric database, node registry and runtime inventory
 
 The first production database milestone is `fabric.nodes`, with exactly four
 columns: `uuid` (UUID primary key), `id` (unique positive INT8), `region`, and
@@ -38,6 +38,9 @@ GRANT CONNECT ON DATABASE fabric TO fabric;
 -- Run the following while connected to the fabric database:
 GRANT USAGE ON SCHEMA public TO fabric;
 GRANT SELECT, INSERT, UPDATE ON TABLE nodes TO fabric;
+-- After applying 202611010001_runtime_instances:
+GRANT SELECT, INSERT, UPDATE ON TABLE node_observations, runtime_instances TO fabric;
+GRANT SELECT ON TABLE runtime_instance_observations TO fabric;
 ```
 
 For a new dedicated database, revoke public database/schema privileges before
@@ -46,11 +49,35 @@ CREATE, DELETE, migration-history access, or access to the dn42 database.
 Generate a separate strong password and keep it in operator secret storage;
 do not put operator credentials in the runtime configuration.
 
-RuntimeInstance persistence remains deferred. The previous inventory SQL is
-embedded only in the opt-in test fixture. `inventoryd` cannot migrate it and
-must not be enabled against this nodes-only database. A future versioned
-migration must reference `nodes.uuid` and keep observation freshness/ordering
-outside this four-column identity model.
+Migration `202611010001_runtime_instances` adds `runtime_instances` referencing
+`nodes.uuid`, plus `node_observations` for publisher epoch, revision, latest
+complete revision, and freshness. It leaves `nodes` unchanged. The
+`runtime_instance_observations` view exposes computed staleness after 60 seconds
+without an accepted newer snapshot, using database receipt time rather than a
+publisher clock, or when an instance belongs to an older epoch. It is a read
+projection, not an append-only event log.
+
+Observed snapshots cannot create node registrations or modify placement. Unknown
+node UUIDs fail the foreign key check. Runtime IDs and state history are kept
+separately from node identity. Removal retains the instance row; a node outage
+does not imply exited or removed containers. Existing Fabric-managed identities
+and associations are preserved, but observed registration never adopts workloads.
+
+`inventoryd` uses the same GORM database adapter and a single underlying pool,
+with conditional SQL for atomic ordering-aware upserts and serializable retries.
+It does not migrate at startup. Its database URL is `FABRIC_DATABASE_URL`;
+`FABRIC_INVENTORY_DATABASE_URL` remains a compatibility fallback.
+
+```sh
+# Read at most 1000 current/historical observations for one node.
+go run ./control/cmd/fabric-db -list-runtime-instances -node-uuid <registered-uuid>
+```
+
+Apply and verify the migration with an operator identity before granting the
+consumer access to the new tables/view. A narrower consumer role can have only
+SELECT on `nodes`, DML on the observation/runtime tables, and SELECT on the view;
+the existing `fabric` role's node registration grants need not be expanded further.
+Publisher and broker enablement remain separate deployment steps.
 
 Validation uses the existing opt-in secure IPv6 CRDB/NATS lab: migration replay,
 exact columns, identity conflict rollback, placement updates, runtime DML and

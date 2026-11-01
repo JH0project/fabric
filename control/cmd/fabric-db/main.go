@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/JH0project/fabric/control/internal/database"
+	"github.com/google/uuid"
 )
 
 func main() {
@@ -25,9 +26,21 @@ func run() error {
 	migrate := flag.Bool("migrate", false, "apply versioned schema migrations and exit")
 	input := flag.String("import-nodes", "", "import node identities from a JSON file")
 	list := flag.Bool("list-nodes", false, "print registered nodes as JSON")
+	listRuntime := flag.Bool("list-runtime-instances", false, "print up to 1000 runtime observations for a node, including removal history")
+	nodeFlag := flag.String("node-uuid", "", "registered node UUID for list-runtime-instances")
 	flag.Parse()
-	if flag.NArg() != 0 || (!*migrate && *input == "" && !*list) {
+	if flag.NArg() != 0 || (!*migrate && *input == "" && !*list && !*listRuntime) {
 		return errors.New("select migrate, import-nodes or list-nodes")
+	}
+	var node uuid.UUID
+	if *listRuntime {
+		var err error
+		node, err = uuid.Parse(*nodeFlag)
+		if err != nil || node == uuid.Nil {
+			return errors.New("list-runtime-instances requires a node UUID")
+		}
+	} else if *nodeFlag != "" {
+		return errors.New("node-uuid requires list-runtime-instances")
 	}
 	var nodes []database.Node
 	if *input != "" {
@@ -66,6 +79,15 @@ func run() error {
 	}
 	if *list {
 		result, err := store.Nodes(ctx)
+		if err != nil {
+			return err
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+			return err
+		}
+	}
+	if *listRuntime {
+		result, err := store.RuntimeInstances(ctx, node)
 		if err != nil {
 			return err
 		}

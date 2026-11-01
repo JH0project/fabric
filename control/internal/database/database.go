@@ -25,6 +25,12 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	if err != nil || u.Hostname() == "" || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Query().Get("sslmode") != "verify-full" || u.Query().Get("sslrootcert") == "" {
 		return nil, errors.New("database URL requires verify-full and a CA path")
 	}
+	if ip := net.ParseIP(u.Hostname()); ip != nil && ip.To4() != nil {
+		return nil, errors.New("database endpoint must use IPv6")
+	}
+	if (u.Query().Get("sslcert") == "") != (u.Query().Get("sslkey") == "") {
+		return nil, errors.New("database client certificate and key must be supplied together")
+	}
 	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		return nil, errors.New("invalid database configuration")

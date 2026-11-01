@@ -60,8 +60,10 @@ inventory synchronization while preserving these boundaries.
   integer ID; do not add generated IDs, names or timestamps implicitly.
 - Use GORM through `internal/database` and explicit Gormigrate versions recorded
   in `schema_migrations`. No startup AutoMigrate. The dedicated database is
-  `fabric`, so table names need no `fabric_` prefix. Runtime SQL stays a test
-  fixture until separately versioned. Keep runtime users separate from operators.
+  `fabric`, so table names need no `fabric_` prefix. RuntimeInstance migration
+  `202611010001_runtime_instances` references `nodes.uuid`; synchronization state
+  belongs in `node_observations`, never extra Node columns. Test the same
+  versioned schema used by production. Keep runtime users separate from operators.
 
 - The new synchronization path uses IPv6-only verified TLS/mTLS. Existing secure
   CRDB runs as `securecockroachdb.service`; verify current version/configuration
@@ -75,7 +77,10 @@ inventory synchronization while preserving these boundaries.
   separate operations. A request for a deployment plan does not authorize a
   deployment. Prefer Coolify MCP, then its authenticated normal API when needed.
   Do not operate the Coolify container or PHP/Laravel directly.
-- Preserve unrelated working-tree/staged changes and keep Git signing enabled.
+- After completing and validating a scoped unit of work, create a focused commit.
+  Every agent-created commit must be unsigned (`git -c commit.gpgsign=false commit`).
+  Preserve unrelated working-tree/staged changes. This supersedes earlier agent
+  signing requirements; committing alone does not authorize push or deployment.
 - Work directly in `C:\Users\Heihe\Downloads\jh0project-fabric`. Use the task's
   `work/` only for temporary binaries, fixtures, and lab data, not another source
   checkout. Prefer direct file patches in the actual repo.

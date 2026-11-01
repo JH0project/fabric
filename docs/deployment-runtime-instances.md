@@ -1,9 +1,10 @@
 # Framework and RuntimeInstance migration/deployment gates
 
-Current production database scope is nodes first: follow [database.md](database.md)
-and run `fabric-db -migrate`. Only `nodes` and `schema_migrations` are created.
-RuntimeInstance database activation and the consumer stages below are deferred;
-the prior runtime schema is retained exclusively as an integration-test fixture.
+The node registry is already the first milestone. Follow [database.md](database.md)
+and explicitly apply `202611010001_runtime_instances` using `fabric-db -migrate`
+before enabling publishers or the consumer. It adds the runtime table,
+`node_observations`, and the computed observation view without changing `nodes`.
+The secure integration fixture uses these same versioned production migrations.
 
 This is a rollout runbook, not deployment authorization. Keep fleet-specific
 addresses, credentials, startup commands, and resource identities in deployment
@@ -28,7 +29,7 @@ server before enabling publishers. Existing route TLS/replication is unchanged.
    preserve unrelated changes. Run unit/regression tests, vet, Linux race tests,
    secure IPv6 CRDB/NATS certificate and password authentication/outage tests,
    and static arm64 builds of both binaries.
-2. Commit with signing enabled when authorized. Record the exact release SHA,
+2. Commit the completed scope unsigned per the user's standing work rule. Record the exact release SHA,
    clean source state, image digest/platform, and rollback revision. Use the
    normal authenticated Coolify pipeline; no ad hoc managed-container replacement.
 3. Capture existing application options/env/storage/destination settings through
