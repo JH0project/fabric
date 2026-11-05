@@ -31,7 +31,7 @@ type Store struct {
 }
 
 func Open(ctx context.Context, c Config) (*Store, error) {
-	if c.Host == "" || c.Name == "" || c.Username == "" || c.Password == "" || c.ServerID <= 0 {
+	if c.Host == "" || c.Name == "" || c.Username == "" || c.Password == "" || c.ServerID < 0 {
 		return nil, errors.New("Coolify database configuration incomplete")
 	}
 	if c.Port == "" {

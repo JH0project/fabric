@@ -19,7 +19,7 @@ type Reference struct {
 }
 
 func (r Reference) Valid() bool {
-	return r.ApplicationUUID != "" && len(r.ApplicationUUID) <= 128 && r.ServerID > 0 && r.TeamID >= 0
+	return r.ApplicationUUID != "" && len(r.ApplicationUUID) <= 128 && r.ServerID >= 0 && r.TeamID >= 0
 }
 
 type Variable struct{ Key, Value string }

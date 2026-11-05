@@ -13,6 +13,18 @@ type memoryStore struct {
 	err      error
 }
 
+func TestCoolifyRootServerAndTeamIdentity(t *testing.T) {
+	ref := Reference{ApplicationUUID: "root-app", ServerID: 0, TeamID: 0}
+	got, err := (Resolver{memoryStore{snapshot: Snapshot{Variables: []ApplicationVariable{{Variable: Variable{Key: "ROOT", Value: "value"}, Runtime: true}}}}}).Resolve(context.Background(), ref)
+	if err != nil || len(got) != 1 || got[0].Value != "value" {
+		t.Fatal("Coolify root identities rejected", err)
+	}
+	ref.ServerID = -1
+	if ref.Valid() {
+		t.Fatal("negative server identity accepted")
+	}
+}
+
 func (s memoryStore) Load(context.Context, Reference) (Snapshot, error) { return s.snapshot, s.err }
 func TestResolveCoolifyTemplateSemantics(t *testing.T) {
 	s := Snapshot{TeamID: 10, ProjectID: 20, EnvironmentID: 30, ServerID: 40, Variables: []ApplicationVariable{

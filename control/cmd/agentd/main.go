@@ -206,7 +206,7 @@ func run(ctx context.Context, logger *slog.Logger, args []string) (err error) {
 			applier = service
 			if os.Getenv("FABRIC_COOLIFY_DB_ENV_ENABLED") == "true" {
 				serverID, parseErr := strconv.ParseInt(os.Getenv("FABRIC_COOLIFY_SERVER_ID"), 10, 64)
-				if parseErr != nil || serverID <= 0 {
+				if parseErr != nil || serverID < 0 {
 					return errors.New("Coolify environment reads require FABRIC_COOLIFY_SERVER_ID")
 				}
 				keys := []string{os.Getenv("FABRIC_COOLIFY_APP_KEY")}
