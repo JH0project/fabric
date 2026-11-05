@@ -79,39 +79,20 @@ func (s *Store) Load(ctx context.Context, ref environment.Reference) (result env
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	err = s.database.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var app struct {
-			ID, TeamID, ProjectID, EnvironmentID int64
-			DestinationType                      string
-			DestinationID                        int64
-		}
-		query := tx.Table("public.applications AS a").Select("a.id,a.environment_id,a.destination_type,a.destination_id,e.project_id,p.team_id").Joins("JOIN public.environments e ON e.id=a.environment_id").Joins("JOIN public.projects p ON p.id=e.project_id").Where("a.uuid=? AND a.deleted_at IS NULL AND p.team_id=?", ref.ApplicationUUID, ref.TeamID).Take(&app)
+		var app struct{ ID, TeamID, ProjectID, EnvironmentID int64 }
+		// Authorization is one round trip even for additional destinations.
+		query := tx.Table("public.applications AS a").
+			Select("a.id,a.environment_id,e.project_id,p.team_id").
+			Joins("JOIN public.environments e ON e.id=a.environment_id").
+			Joins("JOIN public.projects p ON p.id=e.project_id").
+			Joins("JOIN public.servers target ON target.id=? AND target.deleted_at IS NULL", ref.ServerID).
+			Joins("LEFT JOIN public.standalone_dockers d ON a.destination_type=? AND d.id=a.destination_id", `App\Models\StandaloneDocker`).
+			Joins("LEFT JOIN public.swarm_dockers sw ON a.destination_type=? AND sw.id=a.destination_id", `App\Models\SwarmDocker`).
+			Joins("JOIN public.servers primary_server ON primary_server.id=COALESCE(d.server_id,sw.server_id) AND primary_server.deleted_at IS NULL").
+			Where("a.uuid=? AND a.deleted_at IS NULL AND p.team_id=? AND target.team_id=p.team_id AND primary_server.team_id=p.team_id", ref.ApplicationUUID, ref.TeamID).
+			Where("(primary_server.id=target.id OR EXISTS (SELECT 1 FROM public.additional_destinations ad WHERE ad.application_id=a.id AND ad.server_id=target.id))").Take(&app)
 		if query.Error != nil {
 			return environment.ErrUnavailable
-		}
-		table := ""
-		switch app.DestinationType {
-		case `App\Models\StandaloneDocker`:
-			table = "public.standalone_dockers"
-		case `App\Models\SwarmDocker`:
-			table = "public.swarm_dockers"
-		default:
-			return environment.ErrUnavailable
-		}
-		var primary struct{ ServerID int64 }
-		if tx.Table(table).Select("server_id").Where("id=?", app.DestinationID).Take(&primary).Error != nil {
-			return environment.ErrUnavailable
-		}
-		var count int64
-		if tx.Table("public.servers").Where("id=? AND team_id=? AND deleted_at IS NULL", primary.ServerID, ref.TeamID).Count(&count).Error != nil || count != 1 {
-			return environment.ErrUnavailable
-		}
-		if tx.Table("public.servers").Where("id=? AND team_id=? AND deleted_at IS NULL", ref.ServerID, ref.TeamID).Count(&count).Error != nil || count != 1 {
-			return environment.ErrUnavailable
-		}
-		if primary.ServerID != ref.ServerID {
-			if tx.Table("public.additional_destinations").Where("application_id=? AND server_id=?", app.ID, ref.ServerID).Count(&count).Error != nil || count < 1 {
-				return environment.ErrUnavailable
-			}
 		}
 		result = environment.Snapshot{TeamID: app.TeamID, ProjectID: app.ProjectID, EnvironmentID: app.EnvironmentID, ServerID: ref.ServerID}
 		var vars []struct {
