@@ -76,7 +76,9 @@ func (s *Store) Load(ctx context.Context, ref environment.Reference) (result env
 	if !ref.Valid() || ref.ServerID != s.serverID {
 		return result, environment.ErrUnavailable
 	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	// Leave room for verified TLS reconnects and intercontinental round trips,
+	// while remaining below the caller's thirty-second RPC timeout.
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	err = s.database.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var app struct{ ID, TeamID, ProjectID, EnvironmentID int64 }

@@ -82,7 +82,7 @@ Database connections require verified TLS and IPv6. There is no insecure switch.
 Saving a DB host/login alone does not enable this feature: configure PostgreSQL
 TLS, trusted CA/identity and the encryption key before activation. No secrets,
 DSNs, SQL parameters, decrypted values or rendered content are logged. Queries
-use a three-second deadline, bounded row/value sizes and repeatable-read read-only
+use a ten-second deadline, bounded row/value sizes and repeatable-read read-only
 transactions; the pool also defaults transactions to read-only. No SQL role or
 schema is changed by the adapter.
 
